@@ -86,4 +86,10 @@ async def run(transcript: list[dict], *, title: str, duration: float) -> GateRes
     )
     result: GateResult = final["result"]
     logger.info("TranscriptGate: %s — %s", result.verdict, result.reason)
+    try:
+        from routers import metrics as _metrics
+
+        _metrics.record(f"gate_{result.verdict}", 1)
+    except Exception:
+        pass
     return result

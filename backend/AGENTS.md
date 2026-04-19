@@ -84,6 +84,23 @@ prefixes in `uvicorn` output:
 - `claude <model>: ... in, ... out, ...ms` — every LLM call
 - `openai gpt-4.1 fallback: ...ms` — fallback path took over
 
+## Observability and demo resilience
+
+Three small additions sit beside the agents:
+
+- **`routers/metrics.py`** — `GET /metrics` returns rolling p50/p95 of Claude
+  and Nunchaku latencies, plus counters for gate verdicts, rewriter triggers,
+  and OpenAI fallback usage. `POST /metrics/reset` clears the window. In-memory
+  only; resets on reload.
+- **`routers/generate.py`** — image generation is now parallelized with
+  `asyncio.gather` + `Semaphore(MAX_CONCURRENT_GENERATIONS=3)`. SSE events still
+  stream in completion order so the UI progress counter stays live.
+- **`scripts/seed_demo.py` + `routers/demo.py`** — `python scripts/seed_demo.py
+  --slug <name> --url <yt-url>` runs the full pipeline once and saves the
+  outputs under `backend/demo_seeds/<slug>/`. The `/demo/<slug>` endpoint then
+  serves those canned results without hitting live APIs — drop `?demo=<slug>`
+  into the frontend URL to use a seeded fixture during the pitch.
+
 ## Adding a new agent
 
 1. Add the system prompt and `*_MODEL` constant to `prompts.py`

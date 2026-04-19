@@ -18,6 +18,17 @@ from anthropic import APIStatusError
 
 logger = logging.getLogger(__name__)
 
+
+def _record(name: str, value: int | float) -> None:
+    """Record a metric if the metrics module is importable. Fail-silent to keep
+    agents testable in isolation."""
+    try:
+        from routers import metrics as _metrics
+
+        _metrics.record(name, value)
+    except Exception:
+        pass
+
 # Lazy singletons — created on first use so importing this module doesn't
 # require the env vars to be set at import time (useful for tests).
 _anthropic_client: anthropic.AsyncAnthropic | None = None
@@ -62,16 +73,20 @@ async def run_claude(
             messages=[{"role": "user", "content": user}],
         )
         text = "".join(b.text for b in resp.content if b.type == "text")
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        _record(f"claude_{model}_ms", elapsed_ms)
+        _record("claude_calls", 1)
         logger.info(
             "claude %s: %d in, %d out, %dms",
             model,
             resp.usage.input_tokens,
             resp.usage.output_tokens,
-            int((time.monotonic() - t0) * 1000),
+            elapsed_ms,
         )
         return text
     except APIStatusError as e:
         if 500 <= e.status_code < 600:
+            _record("anthropic_5xx_fallback", 1)
             logger.warning("Anthropic %d — falling back to OpenAI", e.status_code)
             return await _openai_fallback(system=system, user=user, max_tokens=max_tokens)
         raise

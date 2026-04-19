@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 import logging
@@ -20,12 +21,17 @@ from config import (
     NUNCHAKU_NEGATIVE_PROMPT,
     NUNCHAKU_TIER,
 )
+from routers import metrics
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 IMAGE_DIR = Path("/tmp/visualang_images")
 IMAGE_DIR.mkdir(exist_ok=True)
+
+# Cap concurrent Nunchaku calls to avoid rate limits while still parallelizing.
+# Tuned for the hackathon free tier — increase if the provider allows more RPS.
+MAX_CONCURRENT_GENERATIONS = 3
 
 
 def _call_nunchaku(prompt: str, model: str, tier: str) -> str:
@@ -64,68 +70,92 @@ def generate_image(prompt: str, model: str = NUNCHAKU_MODEL, tier: str = NUNCHAK
     start = time.time()
     b64_data = _call_nunchaku(prompt, model, tier)
     filepath = _save_b64(b64_data)
-    elapsed = int((time.time() - start) * 1000)
-    logger.info(f"Generated image in {elapsed}ms | model={model} tier={tier} | {prompt[:80]}")
+    elapsed_ms = int((time.time() - start) * 1000)
+    metrics.record("nunchaku_generate_ms", elapsed_ms)
+    logger.info(f"Generated image in {elapsed_ms}ms | model={model} tier={tier} | {prompt[:80]}")
     return {"filepath": filepath, "b64": b64_data}
 
 
-async def _generate_with_recovery(concept: dict) -> dict:
-    """Generate one image. If vision post-check flags text, rewrite the prompt
-    and retry once. Returns the final {filepath, b64, prompt_used}."""
-    original_prompt = concept["image_prompt"]
-    concept_name = concept["concept"]
+async def _generate_with_recovery(concept: dict, semaphore: asyncio.Semaphore) -> dict:
+    """Generate one image with bounded concurrency. If vision post-check flags
+    text, rewrite the prompt and retry once."""
+    async with semaphore:
+        original_prompt = concept["image_prompt"]
+        concept_name = concept["concept"]
 
-    result = await run_in_threadpool(generate_image, original_prompt)
+        result = await run_in_threadpool(generate_image, original_prompt)
 
-    try:
-        check = await analyze_image_handler(image_b64=result["b64"])
-    except Exception as e:
-        logger.warning("vision check raised, skipping recovery: %s", e)
-        return {**result, "prompt_used": original_prompt}
+        try:
+            check = await analyze_image_handler(image_b64=result["b64"])
+        except Exception as e:
+            logger.warning("vision check raised, skipping recovery: %s", e)
+            return {**result, "prompt_used": original_prompt}
 
-    if not check.get("has_text"):
-        return {**result, "prompt_used": original_prompt}
+        if not check.get("has_text"):
+            return {**result, "prompt_used": original_prompt}
 
-    failure_signal = f"vision check detected text in output: {check.get('details', '')}"
-    logger.info("Image failed post-check for '%s' — rewriting prompt", concept_name)
+        failure_signal = f"vision check detected text in output: {check.get('details', '')}"
+        logger.info("Image failed post-check for '%s' — rewriting prompt", concept_name)
+        metrics.record("rewriter_triggered", 1)
 
-    try:
-        rewrite = await image_rewriter.run(
-            original_prompt=original_prompt,
-            failure_signal=failure_signal,
-            concept=concept_name,
-        )
-    except Exception as e:
-        logger.warning("rewriter failed, returning original image: %s", e)
-        return {**result, "prompt_used": original_prompt}
+        try:
+            rewrite = await image_rewriter.run(
+                original_prompt=original_prompt,
+                failure_signal=failure_signal,
+                concept=concept_name,
+            )
+        except Exception as e:
+            logger.warning("rewriter failed, returning original image: %s", e)
+            return {**result, "prompt_used": original_prompt}
 
-    retry = await run_in_threadpool(generate_image, rewrite.revised_prompt)
-    logger.info("Retry used revised prompt: %s", rewrite.reasoning[:80])
-    return {**retry, "prompt_used": rewrite.revised_prompt}
+        retry = await run_in_threadpool(generate_image, rewrite.revised_prompt)
+        logger.info("Retry used revised prompt: %s", rewrite.reasoning[:80])
+        return {**retry, "prompt_used": rewrite.revised_prompt}
 
 
 async def generate_images_stream(concepts: list):
     total = len(concepts)
-    results = []
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_GENERATIONS)
+
+    # Launch all tasks up front; stream each event as its image completes,
+    # preserving original concept order in the final results.
+    async def _one(i: int, concept: dict):
+        logger.info(f"Generating image {i + 1}/{total}: '{concept['concept']}'")
+        final = await _generate_with_recovery(concept, semaphore)
+        return i, concept, final
+
+    tasks = [asyncio.create_task(_one(i, c)) for i, c in enumerate(concepts)]
+    results_by_index: dict[int, dict] = {}
+    completed = 0
+    t0 = time.time()
+
     try:
-        for i, concept in enumerate(concepts):
-            logger.info(f"Generating image {i + 1}/{total}: '{concept['concept']}'")
-            final = await _generate_with_recovery(concept)
+        for coro in asyncio.as_completed(tasks):
+            i, concept, final = await coro
+            completed += 1
             filename = Path(final["filepath"]).name
             image_url = f"/images/{filename}"
-            results.append({
+            results_by_index[i] = {
                 "timestamp_seconds": concept["timestamp_seconds"],
                 "image_url": image_url,
-            })
+            }
             event = json.dumps({
-                "index": i + 1,
+                "index": completed,
                 "total": total,
                 "image_url": image_url,
                 "concept": concept["concept"],
             })
             yield f"data: {event}\n\n"
-        yield f"data: {json.dumps({'done': True, 'images': results})}\n\n"
+
+        ordered = [results_by_index[i] for i in range(total)]
+        metrics.record("generate_batch_ms", int((time.time() - t0) * 1000))
+        metrics.record("generate_batch_size", total)
+        yield f"data: {json.dumps({'done': True, 'images': ordered})}\n\n"
     except Exception as e:
+        # Cancel any still-running tasks so a single failure doesn't leak workers.
+        for t in tasks:
+            if not t.done():
+                t.cancel()
         logger.exception("Image generation stream failed")
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
