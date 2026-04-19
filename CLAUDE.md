@@ -10,6 +10,8 @@ This repo contains two things:
 
 **2. Visualang** — A comprehensible input visual companion for language learning. Takes a YouTube URL or local audio file, extracts transcript, uses Claude to identify visual moments, generates storybook illustrations via Nunchaku (~1s/image), and renders a downloadable `.mp4` with Ken Burns animations + synced audio. Lives in `frontend/` (React + Vite) and `backend/` (FastAPI).
 
+The backend pipeline is guarded and self-corrected by three runtime agents (TranscriptGate, ConceptExtractor, ImagePromptRewriter) — see [`backend/AGENTS.md`](backend/AGENTS.md) for how they plug into the routers.
+
 ## Visualang Commands
 
 ```bash

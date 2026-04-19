@@ -12,7 +12,9 @@ import base64
 import os
 
 import requests
+from dotenv import load_dotenv
 
+load_dotenv()
 API_KEY = os.environ["NUNCHAKU_API_KEY"]
 BASE_URL = "https://api.nunchaku.dev"
 

@@ -8,6 +8,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from youtube_transcript_api import YouTubeTranscriptApi
 
+from agents import transcript_gate
 from config import OPENAI_API_KEY
 
 logger = logging.getLogger(__name__)
@@ -107,6 +108,7 @@ async def transcript_youtube(body: YoutubeRequest):
         logger.error(f"Transcript fetch failed: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch transcript: {e}")
 
+    info: dict | None = None
     try:
         info = get_video_info(body.video_url)
         title = info["title"]
@@ -114,6 +116,18 @@ async def transcript_youtube(body: YoutubeRequest):
     except Exception as e:
         logger.warning(f"Could not fetch video info: {e}")
         title = "Untitled"
+
+    # Prefer yt-dlp duration; fall back to last segment end time.
+    if info and info.get("duration"):
+        duration = info["duration"]
+    elif normalized:
+        last = normalized[-1]
+        duration = last["start"] + last["duration"]
+    else:
+        duration = 0
+    verdict = await transcript_gate.run(normalized, title=title, duration=duration)
+    if verdict.verdict == "reject":
+        raise HTTPException(status_code=422, detail=f"Transcript rejected: {verdict.reason}")
 
     audio_base = str(IMAGE_DIR / video_id)
     audio_path = audio_base + ".mp3"
@@ -124,7 +138,16 @@ async def transcript_youtube(body: YoutubeRequest):
         logger.error(f"Audio extraction failed: {e}")
         raise HTTPException(status_code=500, detail=f"Audio extraction failed: {e}")
 
-    return {"transcript": normalized, "audio_path": audio_path, "title": title}
+    return {
+        "transcript": normalized,
+        "audio_path": audio_path,
+        "title": title,
+        "gate": {
+            "verdict": verdict.verdict,
+            "reason": verdict.reason,
+            "detected_language": verdict.detected_language,
+        },
+    }
 
 
 @router.post("/transcript/upload")
@@ -152,5 +175,18 @@ async def transcript_upload(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Transcription failed: {e}")
 
     title = Path(file.filename).stem
+    duration = (normalized[-1]["start"] + normalized[-1]["duration"]) if normalized else 0
+    verdict = await transcript_gate.run(normalized, title=title, duration=duration)
+    if verdict.verdict == "reject":
+        raise HTTPException(status_code=422, detail=f"Transcript rejected: {verdict.reason}")
 
-    return {"transcript": normalized, "audio_path": str(audio_path), "title": title}
+    return {
+        "transcript": normalized,
+        "audio_path": str(audio_path),
+        "title": title,
+        "gate": {
+            "verdict": verdict.verdict,
+            "reason": verdict.reason,
+            "detected_language": verdict.detected_language,
+        },
+    }

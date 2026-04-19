@@ -15,7 +15,11 @@ import sys
 import tempfile
 
 import gradio as gr
+from dotenv import load_dotenv
 from PIL import Image
+
+# Load .env from the project root (parent of demo/) before reading env vars
+load_dotenv(os.path.join(os.path.dirname(__file__), os.pardir, ".env"))
 
 # Allow importing nunchaku.py from the same directory
 sys.path.insert(0, os.path.dirname(__file__))
