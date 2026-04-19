@@ -5,7 +5,7 @@
     "frontend"
   ],
   "scripts": {
-    "prepare": "husky",
+    "prepare": "node scripts/prepare-husky.mjs",
     "dev": "concurrently --names 'backend,frontend' --prefix-colors 'yellow,cyan' 'cd backend && uvicorn main:app --reload' 'cd frontend && pnpm dev'"
   },
   "devDependencies": {
