@@ -49,7 +49,10 @@ REQUIRED_SUFFIX_FRAGMENT = "children's storybook illustration"
 
 COUNT_WPM_SCHEMA = {
     "name": "count_words_per_minute",
-    "description": "Compute words-per-minute over the transcript. Low WPM suggests silence or music.",
+    "description": (
+        "Compute words-per-minute over the transcript. "
+        "Low WPM suggests silence or music."
+    ),
     "input_schema": {"type": "object", "properties": {}, "required": []},
 }
 
@@ -70,7 +73,10 @@ def count_wpm_handler(*, transcript: list[dict]) -> dict:
 
 SILENCE_SCHEMA = {
     "name": "check_silence_ratio",
-    "description": "Ratio of silent gaps between segments vs. total duration. High ratio = sparse speech.",
+    "description": (
+        "Ratio of silent gaps between segments vs. total duration. "
+        "High ratio = sparse speech."
+    ),
     "input_schema": {"type": "object", "properties": {}, "required": []},
 }
 
@@ -151,7 +157,11 @@ def check_forbidden_handler(*, concepts: list[dict]) -> dict:
     issues: list[dict] = []
     for c in concepts:
         prompt_lower = c["image_prompt"].lower()
-        hits = [w for w in FORBIDDEN_PROMPT_WORDS if re.search(rf"\b{re.escape(w)}\b", prompt_lower)]
+        hits = [
+            w
+            for w in FORBIDDEN_PROMPT_WORDS
+            if re.search(rf"\b{re.escape(w)}\b", prompt_lower)
+        ]
         missing_suffix = REQUIRED_SUFFIX_FRAGMENT not in prompt_lower
         if hits or missing_suffix:
             issues.append(
