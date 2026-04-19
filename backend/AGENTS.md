@@ -49,15 +49,19 @@ agents/
 - [`routers/concepts.py`](./routers/concepts.py) — replaced the naive single
   Claude call with `ConceptExtractor`.
 - [`routers/generate.py`](./routers/generate.py) — each generated image is
-  vision-checked via Haiku. On `has_text=true`, `ImagePromptRewriter` produces
-  a revised prompt and the image is regenerated once (bounded to keep latency
-  predictable).
+  throttled and retried on `429` with backoff. Vision-check rewrite recovery
+  can be toggled off in env during provider instability to avoid extra
+  Nunchaku calls.
 
 ## Env vars required
 
 - `ANTHROPIC_API_KEY` — used by all three agents
 - `OPENAI_API_KEY` — used only if Anthropic returns 5xx (fallback to `gpt-4.1`)
 - `NUNCHAKU_API_KEY` — used by `/generate`, not by agents directly
+- `NUNCHAKU_MIN_INTERVAL_SECONDS` — minimum gap between Nunchaku attempts
+- `NUNCHAKU_MAX_429_RETRIES` — retry budget for `429 Too Many Requests`
+- `NUNCHAKU_BACKOFF_BASE_SECONDS` — fallback backoff when `Retry-After` is missing
+- `NUNCHAKU_ENABLE_REWRITE_RECOVERY` — opt-in retry after vision text detection
 
 ## Model swaps
 
@@ -92,9 +96,10 @@ Three small additions sit beside the agents:
   and Nunchaku latencies, plus counters for gate verdicts, rewriter triggers,
   and OpenAI fallback usage. `POST /metrics/reset` clears the window. In-memory
   only; resets on reload.
-- **`routers/generate.py`** — image generation is now parallelized with
-  `asyncio.gather` + `Semaphore(MAX_CONCURRENT_GENERATIONS=3)`. SSE events still
-  stream in completion order so the UI progress counter stays live.
+- **`routers/generate.py`** — image generation now runs serially, one Nunchaku
+  request at a time, with a minimum spacing between attempts and `429`
+  backoff/retry. SSE events still stream after each image completes so the UI
+  progress counter stays live.
 - **`scripts/seed_demo.py` + `routers/demo.py`** — `python scripts/seed_demo.py
   --slug <name> --url <yt-url>` runs the full pipeline once and saves the
   outputs under `backend/demo_seeds/<slug>/`. The `/demo/<slug>` endpoint then
