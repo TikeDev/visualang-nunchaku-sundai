@@ -37,6 +37,8 @@ const SAMPLE_IMAGES = [
   },
 ]
 
+const DEMO_AUDIO_SRC = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3'
+
 // --- Retry helper ---
 async function fetchWithRetry(url, options, onRetry) {
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -62,7 +64,9 @@ function transition(setState, state) {
 }
 
 export default function App() {
-  const [appState, setAppState] = useState(STATES.IDLE)
+  const isDemoMode = new URLSearchParams(window.location.search).has('demo')
+  const [appState, setAppState] = useState(isDemoMode ? STATES.PREVIEW_READY : STATES.IDLE)
+
   const [title, setTitle] = useState('')
   const [images, setImages] = useState([])
   const [youtubeVideoId, setYoutubeVideoId] = useState(null)
@@ -311,13 +315,12 @@ export default function App() {
     appState === STATES.EXPORTING ||
     appState === STATES.DONE
   ) {
-    const videoId = youtubeVideoId
     return (
-      <div style={{ position: 'relative' }}>
+      <div style={{ padding: '2rem', background: 'var(--color-bg, #f5f0e8)', minHeight: '100vh' }}>
         <Player
           images={images.length > 0 ? images : SAMPLE_IMAGES}
-          audioSrc={audioSrc}
-          youtubeVideoId={videoId}
+          audioSrc={isDemoMode ? DEMO_AUDIO_SRC : audioSrc}
+          youtubeVideoId={isDemoMode ? null : youtubeVideoId}
           title={title}
           onStartOver={resetToIdle}
         />
