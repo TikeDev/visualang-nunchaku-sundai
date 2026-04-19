@@ -25,6 +25,7 @@ export default function Player({ images, audioSrc, youtubeVideoId, title, onStar
   const audioRef = useRef(null)
   const intervalRef = useRef(null)
   const loadedRef = useRef(0)
+  const pendingPlayRef = useRef(false)
 
   // Preload all images
   useEffect(() => {
@@ -68,11 +69,19 @@ export default function Player({ images, audioSrc, youtubeVideoId, title, onStar
 
   function handleYouTubeReady(e) {
     playerRef.current = e.target
+    if (pendingPlayRef.current) {
+      pendingPlayRef.current = false
+      playerRef.current.playVideo()
+    }
   }
 
   function handlePlay() {
-    if (youtubeVideoId && playerRef.current) {
-      playerRef.current.playVideo()
+    if (youtubeVideoId) {
+      if (playerRef.current) {
+        playerRef.current.playVideo()
+      } else {
+        pendingPlayRef.current = true
+      }
     } else if (audioRef.current) {
       audioRef.current.play()
     }
@@ -106,7 +115,8 @@ export default function Player({ images, audioSrc, youtubeVideoId, title, onStar
           <YouTube
             videoId={youtubeVideoId}
             onReady={handleYouTubeReady}
-            opts={{ playerVars: { autoplay: 0 } }}
+            style={{ width: '100%', height: '100%' }}
+            opts={{ width: '100%', height: '100%', playerVars: { autoplay: 0 } }}
           />
         </div>
       )}
@@ -200,17 +210,21 @@ const styles = {
   root: {
     position: 'relative',
     width: '100%',
-    height: '100vh',
+    maxWidth: '900px',
+    margin: '0 auto',
+    aspectRatio: '16 / 9',
     background: '#1a1410',
     overflow: 'hidden',
+    borderRadius: '12px',
   },
   hiddenEmbed: {
     position: 'absolute',
-    width: '1px',
-    height: '1px',
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
     opacity: 0,
     pointerEvents: 'none',
-    overflow: 'hidden',
   },
   imageStack: {
     position: 'absolute',
