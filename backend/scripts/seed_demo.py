@@ -84,16 +84,11 @@ async def _seed_from_audio(slug: str, audio_file: Path, out_dir: Path) -> dict:
 
 
 async def _run_pipeline(transcript: list, out_dir: Path) -> tuple[list, list]:
-    import asyncio as _asyncio
-
     concepts = await concept_extractor.run(transcript)
 
-    semaphore = _asyncio.Semaphore(3)
-    tasks = [_generate_with_recovery(c, semaphore) for c in concepts]
-    generated = await _asyncio.gather(*tasks)
-
     images = []
-    for i, (concept, gen) in enumerate(zip(concepts, generated)):
+    for i, concept in enumerate(concepts):
+        gen = await _generate_with_recovery(concept)
         dest = out_dir / f"image_{i:02d}.jpg"
         shutil.copy(gen["filepath"], dest)
         images.append({

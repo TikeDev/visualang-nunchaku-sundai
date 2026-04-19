@@ -29,6 +29,7 @@ def _record(name: str, value: int | float) -> None:
     except Exception:
         pass
 
+
 # Lazy singletons — created on first use so importing this module doesn't
 # require the env vars to be set at import time (useful for tests).
 _anthropic_client: anthropic.AsyncAnthropic | None = None

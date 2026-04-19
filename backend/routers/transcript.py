@@ -16,22 +16,30 @@ router = APIRouter()
 
 IMAGE_DIR = Path("/tmp/visualang_images")
 IMAGE_DIR.mkdir(exist_ok=True)
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+ALLOWED_UPLOAD_EXTENSIONS = {".mp3", ".mp4", ".mpeg", ".mpga", ".m4a", ".wav", ".webm"}
 
 
 # --- Normalizers ---
 
+def _segment_value(segment: dict, key: str):
+    if isinstance(segment, dict):
+        return segment[key]
+    return getattr(segment, key)
+
+
 def normalize_segment(segment: dict, source: str) -> dict:
     if source == "youtube":
         return {
-            "text": segment["text"],
-            "start": segment["start"],
-            "duration": segment["duration"],
+            "text": _segment_value(segment, "text"),
+            "start": _segment_value(segment, "start"),
+            "duration": _segment_value(segment, "duration"),
         }
     elif source == "whisper":
         return {
-            "text": segment["text"],
-            "start": segment["start"],
-            "duration": segment["end"] - segment["start"],
+            "text": _segment_value(segment, "text"),
+            "start": _segment_value(segment, "start"),
+            "duration": _segment_value(segment, "end") - _segment_value(segment, "start"),
         }
 
 
@@ -61,15 +69,16 @@ def extract_audio(video_url: str, output_base: str):
 
 def transcribe_audio(audio_path: str) -> list:
     from openai import OpenAI
+
     client = OpenAI(api_key=OPENAI_API_KEY)
     with open(audio_path, "rb") as f:
         response = client.audio.transcriptions.create(
-            model="gpt-4o-transcribe",
+            model="whisper-1",
             file=f,
             response_format="verbose_json",
             timestamp_granularities=["segment"],
         )
-    return normalize_transcript(response.segments, source="whisper")
+    return normalize_transcript(response.segments or [], source="whisper")
 
 
 def extract_video_id(url: str) -> str:
@@ -179,15 +188,18 @@ async def _handle_youtube(video_url: str):
 async def _handle_upload(file: UploadFile):
     logger.info(f"Transcript upload: {file.filename}, size={file.size}")
 
-    allowed = {".mp3", ".wav", ".m4a", ".aac", ".ogg"}
     suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in allowed:
+    if suffix not in ALLOWED_UPLOAD_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {suffix}")
+
+    audio_bytes = await file.read()
+    if len(audio_bytes) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail="File exceeds 25 MB limit.")
 
     filename = f"{uuid.uuid4()}_{file.filename}"
     audio_path = IMAGE_DIR / filename
     try:
-        audio_path.write_bytes(await file.read())
+        audio_path.write_bytes(audio_bytes)
         logger.info(f"Saved upload to: {audio_path}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")

@@ -2,6 +2,7 @@ import io
 import os
 import sys
 from types import SimpleNamespace
+from unittest.mock import mock_open
 
 from fastapi.testclient import TestClient
 
@@ -136,6 +137,43 @@ def test_transcript_upload_unified_success(monkeypatch):
     assert body["audio_path"].endswith("_lesson.mp3")
 
 
+def test_transcribe_audio_uses_whisper_verbose_json(monkeypatch):
+    captured = {}
+
+    class FakeTranscriptions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                segments=[
+                    SimpleNamespace(text="hola", start=0.0, end=1.0),
+                    SimpleNamespace(text="mundo", start=1.0, end=2.5),
+                ]
+            )
+
+    class FakeAudio:
+        def __init__(self):
+            self.transcriptions = FakeTranscriptions()
+
+    class FakeOpenAI:
+        def __init__(self, api_key):
+            captured["api_key"] = api_key
+            self.audio = FakeAudio()
+
+    monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
+    monkeypatch.setattr("builtins.open", mock_open(read_data=b"audio-bytes"))
+
+    normalized = transcript.transcribe_audio("/tmp/fake.mp3")
+
+    assert captured["api_key"] == transcript.OPENAI_API_KEY
+    assert captured["model"] == "whisper-1"
+    assert captured["response_format"] == "verbose_json"
+    assert captured["timestamp_granularities"] == ["segment"]
+    assert normalized == [
+        {"text": "hola", "start": 0.0, "duration": 1.0},
+        {"text": "mundo", "start": 1.0, "duration": 1.5},
+    ]
+
+
 def test_transcript_invalid_youtube_url_returns_400():
     response = client.post("/transcript", json={"video_url": "https://example.com/not-youtube"})
     assert response.status_code == 400
@@ -149,6 +187,24 @@ def test_transcript_unsupported_file_type_returns_400():
     )
     assert response.status_code == 400
     assert response.json()["detail"] == "Unsupported file type: .txt"
+
+
+def test_transcript_upload_rejects_removed_legacy_file_types():
+    response = client.post(
+        "/transcript",
+        files={"file": ("lesson.ogg", io.BytesIO(b"fake-audio"), "audio/ogg")},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Unsupported file type: .ogg"
+
+
+def test_transcript_upload_rejects_files_over_25_mb():
+    response = client.post(
+        "/transcript",
+        files={"file": ("lesson.mp3", io.BytesIO(b"x" * (25 * 1024 * 1024 + 1)), "audio/mpeg")},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "File exceeds 25 MB limit."
 
 
 def test_transcript_gate_reject_returns_422(monkeypatch):

@@ -3,6 +3,34 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _get_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def _get_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _get_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 # API keys
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -15,6 +43,10 @@ NUNCHAKU_BASE_URL = "https://api.nunchaku.dev"
 NUNCHAKU_NEGATIVE_PROMPT = (
     "text, words, letters, signs, labels, watermark, logo, UI elements, captions"
 )
+NUNCHAKU_MIN_INTERVAL_SECONDS = _get_float("NUNCHAKU_MIN_INTERVAL_SECONDS", 2.0)
+NUNCHAKU_MAX_429_RETRIES = _get_int("NUNCHAKU_MAX_429_RETRIES", 4)
+NUNCHAKU_BACKOFF_BASE_SECONDS = _get_float("NUNCHAKU_BACKOFF_BASE_SECONDS", 3.0)
+NUNCHAKU_ENABLE_REWRITE_RECOVERY = _get_bool("NUNCHAKU_ENABLE_REWRITE_RECOVERY", False)
 
 # Claude settings
 CLAUDE_MODEL = "claude-sonnet-4-6"

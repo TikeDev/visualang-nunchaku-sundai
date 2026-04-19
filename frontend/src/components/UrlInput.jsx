@@ -3,7 +3,7 @@ import { UploadSimple, Warning, YoutubeLogo } from '@phosphor-icons/react'
 
 const YT_REGEX = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&?/]+)/
 const MAX_FILE_BYTES = 25 * 1024 * 1024
-const ALLOWED_EXT = ['.mp3', '.wav', '.m4a', '.aac', '.ogg']
+const ALLOWED_EXT = ['.mp3', '.mp4', '.mpeg', '.mpga', '.m4a', '.wav', '.webm']
 
 export default function UrlInput({ onSubmit }) {
   const [mode, setMode] = useState('youtube')
