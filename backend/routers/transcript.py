@@ -5,6 +5,7 @@ from pathlib import Path
 
 import yt_dlp
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from youtube_transcript_api import YouTubeTranscriptApi
 
@@ -18,6 +19,15 @@ IMAGE_DIR = Path("/tmp/visualang_images")
 IMAGE_DIR.mkdir(exist_ok=True)
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 ALLOWED_UPLOAD_EXTENSIONS = {".mp3", ".mp4", ".mpeg", ".mpga", ".m4a", ".wav", ".webm"}
+AUDIO_MEDIA_TYPES = {
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".mp4": "audio/mp4",
+    ".mpeg": "audio/mpeg",
+    ".mpga": "audio/mpeg",
+    ".wav": "audio/wav",
+    ".webm": "audio/webm",
+}
 
 
 # --- Normalizers ---
@@ -91,6 +101,23 @@ def extract_video_id(url: str) -> str:
         if match:
             return match.group(1)
     raise ValueError(f"Could not extract video ID from URL: {url}")
+
+
+def build_audio_url(audio_path: str) -> str:
+    return f"/media/audio/{Path(audio_path).name}"
+
+
+def resolve_audio_file(filename: str) -> Path:
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    path = IMAGE_DIR / filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Audio not found")
+    return path
+
+
+def audio_media_type(path: Path) -> str:
+    return AUDIO_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
 
 
 def select_youtube_transcript(video_id: str):
@@ -176,6 +203,7 @@ async def _handle_youtube(video_url: str):
     return {
         "transcript": normalized,
         "audio_path": audio_path,
+        "audio_url": build_audio_url(audio_path),
         "title": title,
         "gate": {
             "verdict": verdict.verdict,
@@ -220,6 +248,7 @@ async def _handle_upload(file: UploadFile):
     return {
         "transcript": normalized,
         "audio_path": str(audio_path),
+        "audio_url": build_audio_url(str(audio_path)),
         "title": title,
         "gate": {
             "verdict": verdict.verdict,
@@ -260,3 +289,9 @@ async def transcript_youtube(body: YoutubeRequest):
 @router.post("/transcript/upload")
 async def transcript_upload(file: UploadFile = File(...)):
     return await _handle_upload(file)
+
+
+@router.get("/media/audio/{filename}")
+async def get_audio_file(filename: str):
+    path = resolve_audio_file(filename)
+    return FileResponse(path, media_type=audio_media_type(path), filename=path.name)

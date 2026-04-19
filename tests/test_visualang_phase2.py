@@ -91,6 +91,7 @@ def test_transcript_youtube_unified_success(monkeypatch):
             {"text": "mundo", "start": 1.2, "duration": 1.0},
         ],
         "audio_path": "/tmp/visualang_images/abc123.mp3",
+        "audio_url": "/media/audio/abc123.mp3",
         "title": "Breakfast Spanish",
         "gate": {
             "verdict": "proceed",
@@ -135,6 +136,8 @@ def test_transcript_upload_unified_success(monkeypatch):
         "detected_language": "fr",
     }
     assert body["audio_path"].endswith("_lesson.mp3")
+    assert body["audio_url"].startswith("/media/audio/")
+    assert body["audio_url"].endswith("_lesson.mp3")
 
 
 def test_transcribe_audio_uses_whisper_verbose_json(monkeypatch):
@@ -292,3 +295,27 @@ def test_concepts_parse_failure_returns_500(monkeypatch):
 
     assert response.status_code == 500
     assert response.json()["detail"] == "Concept extraction failed: malformed JSON from model"
+
+
+def test_media_audio_route_serves_existing_file():
+    audio_path = transcript.IMAGE_DIR / "route-test.mp3"
+    audio_path.write_bytes(b"fake-audio")
+    try:
+        response = client.get(f"/media/audio/{audio_path.name}")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("audio/mpeg")
+        assert response.content == b"fake-audio"
+    finally:
+        audio_path.unlink(missing_ok=True)
+
+
+def test_media_audio_route_rejects_invalid_filename():
+    response = client.get("/media/audio/..secret.mp3")
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid filename"
+
+
+def test_media_audio_route_returns_404_for_missing_file():
+    response = client.get("/media/audio/missing-file.mp3")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Audio not found"

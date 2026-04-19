@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { API_URL } from './config.js'
 import LoadingScreen from './components/LoadingScreen.jsx'
 import Player from './components/Player.jsx'
@@ -112,30 +112,33 @@ function transition(setState, state) {
 export default function App() {
   const isDemoMode = new URLSearchParams(window.location.search).has('demo')
   const [appState, setAppState] = useState(isDemoMode ? STATES.PREVIEW_READY : STATES.IDLE)
+  const exportPollRef = useRef(null)
 
   const [title, setTitle] = useState('')
   const [images, setImages] = useState([])
-  const [youtubeVideoId, setYoutubeVideoId] = useState(null)
   const [audioSrc, setAudioSrc] = useState(null)
-  const [audioPath, setAudioPath] = useState(null)
-  const [transcript, setTranscript] = useState([])
   const [exportJobId, setExportJobId] = useState(null)
-  const [exportDone, setExportDone] = useState(false)
   const [error, setError] = useState('')
   const [gateWarning, setGateWarning] = useState('')
   const [genProgress, setGenProgress] = useState({ index: 0, total: 0, concept: '' })
   const [retryMsg, setRetryMsg] = useState('')
 
+  function clearExportPoll() {
+    if (exportPollRef.current) {
+      clearInterval(exportPollRef.current)
+      exportPollRef.current = null
+    }
+  }
+
+  useEffect(() => clearExportPoll, [])
+
   function resetToIdle() {
+    clearExportPoll()
     setAppState(STATES.IDLE)
     setTitle('')
     setImages([])
-    setYoutubeVideoId(null)
     setAudioSrc(null)
-    setAudioPath(null)
-    setTranscript([])
     setExportJobId(null)
-    setExportDone(false)
     setError('')
     setGateWarning('')
     setGenProgress({ index: 0, total: 0, concept: '' })
@@ -147,12 +150,6 @@ export default function App() {
     setError('')
     setGateWarning('')
     setRetryMsg('')
-
-    // Extract YouTube video ID if needed
-    if (input.type === 'youtube') {
-      const match = input.url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&?/]+)/)
-      if (match) setYoutubeVideoId(match[1])
-    }
 
     // --- Step 1: Transcript ---
     transition(setAppState, STATES.LOADING_TRANSCRIPT)
@@ -177,12 +174,10 @@ export default function App() {
           { method: 'POST', body: form },
           setRetryMsg
         )
-        setAudioSrc(URL.createObjectURL(input.file))
       }
       transcriptData = await res.json()
       setTitle(transcriptData.title)
-      setTranscript(transcriptData.transcript)
-      setAudioPath(transcriptData.audio_path)
+      setAudioSrc(toAbsoluteUrl(transcriptData.audio_url))
       if (transcriptData.gate?.verdict === 'warn' && transcriptData.gate?.reason) {
         setGateWarning(transcriptData.gate.reason)
       }
@@ -300,16 +295,16 @@ export default function App() {
   }
 
   async function pollExport(job_id) {
-    const poll = setInterval(async () => {
+    clearExportPoll()
+    exportPollRef.current = setInterval(async () => {
       try {
         const res = await fetch(`${API_URL}/export/${job_id}`)
         const data = await res.json()
         if (data.status === 'done') {
-          clearInterval(poll)
-          setExportDone(true)
+          clearExportPoll()
           transition(setAppState, STATES.DONE)
         } else if (data.status === 'error') {
-          clearInterval(poll)
+          clearExportPoll()
           console.error('[Visualang] Export error:', data.error)
           transition(setAppState, STATES.PREVIEW_READY)
         }
@@ -377,12 +372,17 @@ export default function App() {
   ) {
     return (
       <div style={{ padding: '2rem', background: 'var(--color-bg, #f5f0e8)', minHeight: '100vh' }}>
+        <div style={styles.previewShell}>
+          <div style={styles.previewActions}>
+            <button style={styles.secondaryActionBtn} onClick={resetToIdle}>
+              Create Another Video
+            </button>
+          </div>
+        </div>
         <Player
           images={images.length > 0 ? images : SAMPLE_IMAGES}
           audioSrc={isDemoMode ? DEMO_AUDIO_SRC : audioSrc}
-          youtubeVideoId={isDemoMode ? null : youtubeVideoId}
           title={title}
-          onStartOver={resetToIdle}
         />
         {appState === STATES.EXPORTING && (
           <div style={styles.exportingBadge}>Rendering video...</div>
@@ -444,6 +444,28 @@ const styles = {
     borderRadius: '4px',
     cursor: 'pointer',
     fontSize: '0.85rem',
+  },
+  previewShell: {
+    width: '100%',
+    maxWidth: '900px',
+    margin: '0 auto 1rem',
+  },
+  previewActions: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
+  secondaryActionBtn: {
+    background: 'rgba(255,255,255,0.7)',
+    border: '1px solid rgba(44,36,22,0.18)',
+    color: 'var(--color-warm-dark)',
+    padding: '0.65rem 1rem',
+    borderRadius: '999px',
+    fontSize: '0.9rem',
+    lineHeight: 1,
+    boxShadow: '0 10px 24px rgba(44,36,22,0.08)',
+    backdropFilter: 'blur(8px)',
+    transition: 'transform 0.15s ease, box-shadow 0.15s ease',
   },
   exportingBadge: {
     position: 'fixed',

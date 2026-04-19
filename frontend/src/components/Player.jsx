@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import YouTube from 'react-youtube'
 import { CircleNotch, Pause, Play } from '@phosphor-icons/react'
 
 const KB_ANIMATIONS = [
@@ -16,20 +15,19 @@ function getImageDuration(images, index) {
   return 30
 }
 
-export default function Player({ images, audioSrc, youtubeVideoId, title, onStartOver }) {
+export default function Player({ images, audioSrc, title }) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [isReady, setIsReady] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
-  const playerRef = useRef(null)
   const audioRef = useRef(null)
-  const intervalRef = useRef(null)
   const loadedRef = useRef(0)
-  const pendingPlayRef = useRef(false)
 
   // Preload all images
   useEffect(() => {
     loadedRef.current = 0
+    setCurrentIndex(0)
+    setIsReady(false)
     if (images.length === 0) return
     images.forEach(img => {
       const el = new Image()
@@ -45,84 +43,96 @@ export default function Player({ images, audioSrc, youtubeVideoId, title, onStar
     })
   }, [images])
 
-  // Polling — sync current image to playback time
   useEffect(() => {
-    if (!isPlaying) return
-    intervalRef.current = setInterval(() => {
-      let currentTime = 0
-      if (youtubeVideoId && playerRef.current) {
-        currentTime = playerRef.current.getCurrentTime?.() ?? 0
-      } else if (audioRef.current) {
-        currentTime = audioRef.current.currentTime
-      }
-      let idx = 0
+    const audio = audioRef.current
+    if (!audio) return
+
+    function syncCurrentImage() {
+      const currentTime = audio.currentTime
+      let nextIndex = 0
       for (let i = images.length - 1; i >= 0; i--) {
         if (currentTime >= images[i].timestamp_seconds) {
-          idx = i
+          nextIndex = i
           break
         }
       }
-      setCurrentIndex(idx)
-    }, 500)
-    return () => clearInterval(intervalRef.current)
-  }, [isPlaying, images, youtubeVideoId])
-
-  function handleYouTubeReady(e) {
-    playerRef.current = e.target
-    if (pendingPlayRef.current) {
-      pendingPlayRef.current = false
-      playerRef.current.playVideo()
+      setCurrentIndex(nextIndex)
     }
-  }
+
+    function handlePlayEvent() {
+      setIsPlaying(true)
+      syncCurrentImage()
+    }
+
+    function handlePauseEvent() {
+      setIsPlaying(false)
+    }
+
+    function handleEndedEvent() {
+      setIsPlaying(false)
+      syncCurrentImage()
+    }
+
+    function handleLoadedData() {
+      audio.currentTime = 0
+      syncCurrentImage()
+    }
+
+    audio.addEventListener('play', handlePlayEvent)
+    audio.addEventListener('pause', handlePauseEvent)
+    audio.addEventListener('ended', handleEndedEvent)
+    audio.addEventListener('timeupdate', syncCurrentImage)
+    audio.addEventListener('seeked', syncCurrentImage)
+    audio.addEventListener('loadeddata', handleLoadedData)
+
+    syncCurrentImage()
+    return () => {
+      audio.removeEventListener('play', handlePlayEvent)
+      audio.removeEventListener('pause', handlePauseEvent)
+      audio.removeEventListener('ended', handleEndedEvent)
+      audio.removeEventListener('timeupdate', syncCurrentImage)
+      audio.removeEventListener('seeked', syncCurrentImage)
+      audio.removeEventListener('loadeddata', handleLoadedData)
+    }
+  }, [images, audioSrc])
+
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio) return
+    audio.pause()
+    audio.currentTime = 0
+    setIsPlaying(false)
+    setCurrentIndex(0)
+  }, [audioSrc])
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.playbackRate = playbackRate
+    }
+  }, [playbackRate])
 
   function handlePlay() {
-    if (youtubeVideoId) {
-      if (playerRef.current) {
-        playerRef.current.playVideo()
-      } else {
-        pendingPlayRef.current = true
-      }
-    } else if (audioRef.current) {
-      audioRef.current.play()
-    }
-    setIsPlaying(true)
+    audioRef.current?.play().catch(err => {
+      console.error('[Visualang] Audio play failed:', err)
+      setIsPlaying(false)
+    })
   }
 
   function handlePause() {
-    if (youtubeVideoId && playerRef.current) {
-      playerRef.current.pauseVideo()
-    } else if (audioRef.current) {
-      audioRef.current.pause()
-    }
-    setIsPlaying(false)
+    audioRef.current?.pause()
   }
 
   function handleRateChange(e) {
     const rate = parseFloat(e.target.value)
     setPlaybackRate(rate)
-    if (youtubeVideoId && playerRef.current) {
-      playerRef.current.setPlaybackRate(rate)
-    } else if (audioRef.current) {
+    if (audioRef.current) {
       audioRef.current.playbackRate = rate
     }
   }
 
   return (
     <div style={styles.root}>
-      {/* Hidden YouTube embed */}
-      {youtubeVideoId && (
-        <div style={styles.hiddenEmbed}>
-          <YouTube
-            videoId={youtubeVideoId}
-            onReady={handleYouTubeReady}
-            style={{ width: '100%', height: '100%' }}
-            opts={{ width: '100%', height: '100%', playerVars: { autoplay: 0 } }}
-          />
-        </div>
-      )}
-
-      {/* Hidden HTML5 audio */}
-      {audioSrc && !youtubeVideoId && (
+      {audioSrc && (
         <audio ref={audioRef} src={audioSrc} style={{ display: 'none' }} />
       )}
 
@@ -194,11 +204,6 @@ export default function Player({ images, audioSrc, youtubeVideoId, title, onStar
                 <option key={r} value={r}>{r}x</option>
               ))}
             </select>
-            {onStartOver && (
-              <button style={styles.startOverBtn} onClick={onStartOver}>
-                Start over
-              </button>
-            )}
           </div>
         </div>
       </div>
@@ -216,15 +221,6 @@ const styles = {
     background: '#1a1410',
     overflow: 'hidden',
     borderRadius: '12px',
-  },
-  hiddenEmbed: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    width: '100%',
-    height: '100%',
-    opacity: 0,
-    pointerEvents: 'none',
   },
   imageStack: {
     position: 'absolute',
@@ -311,16 +307,5 @@ const styles = {
     fontSize: '0.85rem',
     cursor: 'pointer',
     backdropFilter: 'blur(4px)',
-  },
-  startOverBtn: {
-    background: 'transparent',
-    border: '1px solid rgba(255,255,255,0.25)',
-    borderRadius: '6px',
-    color: 'rgba(255,255,255,0.7)',
-    padding: '0.3rem 0.75rem',
-    fontSize: '0.82rem',
-    cursor: 'pointer',
-    backdropFilter: 'blur(4px)',
-    transition: 'all 0.15s',
   },
 }

@@ -14,6 +14,44 @@ router = APIRouter()
 
 IMAGE_DIR = Path("/tmp/visualang_images")
 IMAGE_DIR.mkdir(exist_ok=True)
+EXPORT_WIDTH = 1280
+EXPORT_HEIGHT = 720
+EXPORT_FPS = 30
+EXPORT_SCALE_WIDTH = 1436
+EXPORT_SCALE_HEIGHT = 808
+CROSSFADE_DURATION_SECONDS = 0.8
+DEFAULT_IMAGE_DURATION_SECONDS = 30.0
+MIN_SCENE_DURATION_SECONDS = 1 / EXPORT_FPS
+KEN_BURNS_VARIANTS = [
+    {
+        "name": "ken-burns-zoom-in-left",
+        "zoom_start": 1.0,
+        "zoom_end": 1.08,
+        "pan_x": -0.02,
+        "pan_y": -0.01,
+    },
+    {
+        "name": "ken-burns-zoom-in-right",
+        "zoom_start": 1.0,
+        "zoom_end": 1.08,
+        "pan_x": 0.02,
+        "pan_y": 0.01,
+    },
+    {
+        "name": "ken-burns-zoom-out-left",
+        "zoom_start": 1.08,
+        "zoom_end": 1.0,
+        "pan_x": -0.01,
+        "pan_y": 0.01,
+    },
+    {
+        "name": "ken-burns-zoom-out-right",
+        "zoom_start": 1.08,
+        "zoom_end": 1.0,
+        "pan_x": 0.02,
+        "pan_y": -0.01,
+    },
+]
 
 # In-memory job registry
 jobs: dict = {}
@@ -32,34 +70,206 @@ class ExportRequest(BaseModel):
     transcript: list = []
 
 
-async def run_ffmpeg_export(job_id: str, audio_path: str, images: list, output_path: str):
-    jobs[job_id]["status"] = "running"
-    try:
-        # Build concat demuxer input file
-        concat_file = IMAGE_DIR / f"{job_id}_concat.txt"
-        lines = []
-        for img in images:
-            filename = Path(urlparse(img["image_url"]).path).name
-            img_path = IMAGE_DIR / filename
-            duration = img.get("duration_seconds", 25)
-            lines.append(f"file '{img_path}'")
-            lines.append(f"duration {duration}")
-        # Last image needs to be listed again for concat demuxer
-        if lines:
-            last_filename = Path(urlparse(images[-1]["image_url"]).path).name
-            lines.append(f"file '{IMAGE_DIR / last_filename}'")
-        concat_file.write_text("\n".join(lines))
+def format_seconds(value: float) -> str:
+    return f"{value:.3f}"
 
-        ffmpeg_args = [
-            "ffmpeg", "-y",
-            "-f", "concat", "-safe", "0", "-i", str(concat_file),
-            "-i", audio_path,
-            "-vf", "scale=1280:720,format=yuv420p",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-            "-c:a", "aac", "-b:a", "192k",
+
+def normalize_scene_duration(duration_seconds: float) -> float:
+    return max(float(duration_seconds or 0), MIN_SCENE_DURATION_SECONDS)
+
+
+def seconds_to_frames(duration_seconds: float, fps: int = EXPORT_FPS) -> int:
+    return max(1, int(round(duration_seconds * fps)))
+
+
+def get_ken_burns_variant(index: int) -> dict:
+    return KEN_BURNS_VARIANTS[index % len(KEN_BURNS_VARIANTS)]
+
+
+def resolve_export_image_path(image_url: str) -> Path:
+    filename = Path(urlparse(image_url).path).name
+    if not filename:
+        raise ValueError(f"Invalid image URL for export: {image_url!r}")
+    return IMAGE_DIR / filename
+
+
+def can_crossfade(previous_duration: float, next_duration: float, fade_duration: float) -> bool:
+    return previous_duration > fade_duration and next_duration > fade_duration
+
+
+def build_transition_plan(
+    durations: list[float],
+    fade_duration: float = CROSSFADE_DURATION_SECONDS,
+) -> list[dict]:
+    if not durations:
+        return []
+
+    transitions: list[dict] = []
+    current_timeline = durations[0]
+    for index in range(1, len(durations)):
+        previous_duration = durations[index - 1]
+        next_duration = durations[index]
+        if can_crossfade(previous_duration, next_duration, fade_duration):
+            offset = max(current_timeline - fade_duration, 0.0)
+            transitions.append(
+                {
+                    "index": index,
+                    "type": "xfade",
+                    "duration": fade_duration,
+                    "offset": round(offset, 3),
+                }
+            )
+            current_timeline = current_timeline + next_duration - fade_duration
+        else:
+            transitions.append(
+                {
+                    "index": index,
+                    "type": "concat",
+                    "duration": 0.0,
+                    "offset": round(current_timeline, 3),
+                }
+            )
+            current_timeline += next_duration
+    return transitions
+
+
+def build_scene_filter(
+    input_index: int,
+    scene_index: int,
+    duration_seconds: float,
+    fps: int = EXPORT_FPS,
+) -> str:
+    duration_seconds = normalize_scene_duration(duration_seconds)
+    frames = seconds_to_frames(duration_seconds, fps=fps)
+    frame_denominator = max(frames - 1, 1)
+    variant = get_ken_burns_variant(scene_index)
+    zoom_start = variant["zoom_start"]
+    zoom_end = variant["zoom_end"]
+    zoom_step = abs(zoom_end - zoom_start) / frame_denominator
+    if zoom_end >= zoom_start:
+        zoom_expr = (
+            f"if(eq(on,0),{zoom_start:.5f},min(zoom+{zoom_step:.6f},{zoom_end:.5f}))"
+        )
+    else:
+        zoom_expr = (
+            f"if(eq(on,0),{zoom_start:.5f},max(zoom-{zoom_step:.6f},{zoom_end:.5f}))"
+        )
+    x_expr = f"(iw-iw/zoom)/2+({variant['pan_x']:.5f}*iw)*on/{frame_denominator}"
+    y_expr = f"(ih-ih/zoom)/2+({variant['pan_y']:.5f}*ih)*on/{frame_denominator}"
+    return (
+        f"[{input_index}:v]"
+        f"scale={EXPORT_SCALE_WIDTH}:{EXPORT_SCALE_HEIGHT}:force_original_aspect_ratio=increase,"
+        f"crop={EXPORT_SCALE_WIDTH}:{EXPORT_SCALE_HEIGHT},"
+        f"zoompan=z='{zoom_expr}':x='{x_expr}':y='{y_expr}':"
+        f"d={frames}:s={EXPORT_WIDTH}x{EXPORT_HEIGHT}:fps={fps},"
+        f"trim=duration={format_seconds(duration_seconds)},"
+        f"setpts=PTS-STARTPTS,setsar=1,format=yuv420p"
+        f"[v{scene_index}]"
+    )
+
+
+def build_filter_complex(
+    images: list[dict],
+    fps: int = EXPORT_FPS,
+    fade_duration: float = CROSSFADE_DURATION_SECONDS,
+) -> tuple[str, str]:
+    if not images:
+        raise ValueError("At least one image is required for export")
+
+    durations = [
+        normalize_scene_duration(img.get("duration_seconds", DEFAULT_IMAGE_DURATION_SECONDS))
+        for img in images
+    ]
+    filter_parts = [
+        build_scene_filter(input_index=i, scene_index=i, duration_seconds=duration, fps=fps)
+        for i, duration in enumerate(durations)
+    ]
+
+    current_label = "[v0]"
+    for transition in build_transition_plan(durations, fade_duration=fade_duration):
+        next_label = f"[v{transition['index']}]"
+        output_label = f"[vx{transition['index']}]"
+        if transition["type"] == "xfade":
+            filter_parts.append(
+                f"{current_label}{next_label}"
+                f"xfade=transition=fade:duration={format_seconds(transition['duration'])}:"
+                f"offset={format_seconds(transition['offset'])}"
+                f"{output_label}"
+            )
+        else:
+            filter_parts.append(
+                f"{current_label}{next_label}concat=n=2:v=1:a=0{output_label}"
+            )
+        current_label = output_label
+
+    final_label = "[video]"
+    filter_parts.append(f"{current_label}format=yuv420p{final_label}")
+    return ";".join(filter_parts), final_label
+
+
+def build_ffmpeg_args(
+    audio_path: str,
+    images: list[dict],
+    output_path: str,
+    fps: int = EXPORT_FPS,
+) -> list[str]:
+    if not images:
+        raise ValueError("At least one image is required for export")
+
+    ffmpeg_args = ["ffmpeg", "-y"]
+    for img in images:
+        duration = normalize_scene_duration(
+            img.get("duration_seconds", DEFAULT_IMAGE_DURATION_SECONDS)
+        )
+        ffmpeg_args.extend(
+            [
+                "-loop",
+                "1",
+                "-framerate",
+                str(fps),
+                "-t",
+                format_seconds(duration),
+                "-i",
+                str(resolve_export_image_path(img["image_url"])),
+            ]
+        )
+
+    filter_complex, final_video_label = build_filter_complex(images, fps=fps)
+    ffmpeg_args.extend(
+        [
+            "-i",
+            audio_path,
+            "-filter_complex",
+            filter_complex,
+            "-map",
+            final_video_label,
+            "-map",
+            f"{len(images)}:a",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",
+            "-crf",
+            "23",
+            "-pix_fmt",
+            "yuv420p",
+            "-r",
+            str(fps),
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
             "-shortest",
             output_path,
         ]
+    )
+    return ffmpeg_args
+
+
+async def run_ffmpeg_export(job_id: str, audio_path: str, images: list, output_path: str):
+    jobs[job_id]["status"] = "running"
+    try:
+        ffmpeg_args = build_ffmpeg_args(audio_path, images, output_path)
         logger.info(f"Running FFmpeg export for job {job_id}")
         proc = await asyncio.create_subprocess_exec(
             *ffmpeg_args,
@@ -77,7 +287,6 @@ async def run_ffmpeg_export(job_id: str, audio_path: str, images: list, output_p
         logger.info(f"FFmpeg export complete for job {job_id}: {output_size} bytes")
         jobs[job_id]["status"] = "done"
         jobs[job_id]["video_path"] = output_path
-        concat_file.unlink(missing_ok=True)
 
     except Exception as e:
         logger.error(f"Export failed for job {job_id}: {e}")

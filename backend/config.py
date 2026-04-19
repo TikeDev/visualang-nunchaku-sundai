@@ -3,6 +3,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+DEFAULT_CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+]
+
 
 def _get_float(name: str, default: float) -> float:
     raw = os.getenv(name)
@@ -31,10 +38,21 @@ def _get_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _get_csv(name: str, default: list[str]) -> list[str]:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+
+    values = [item.strip() for item in raw.split(",")]
+    filtered = [item for item in values if item]
+    return filtered or default
+
+
 # API keys
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 NUNCHAKU_API_KEY = os.getenv("NUNCHAKU_API_KEY")
+CORS_ALLOWED_ORIGINS = _get_csv("CORS_ALLOWED_ORIGINS", DEFAULT_CORS_ALLOWED_ORIGINS)
 
 # Nunchaku settings
 NUNCHAKU_MODEL = "nunchaku-flux.2-klein-9b"
