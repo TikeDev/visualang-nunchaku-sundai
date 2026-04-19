@@ -25,10 +25,7 @@ When the user says `see the running browser`, interpret it as:
 
 ## Project Overview
 
-This repo has two related surfaces:
-
-1. `Visualang`: a language-learning video companion that turns a YouTube URL or uploaded audio file into transcript-driven storybook visuals and an exported video. Frontend lives in `frontend/`; backend lives in `backend/`.
-2. `Nunchaku API SDK + examples`: a Python client, Gradio demo, examples, and live API tests for Nunchaku image/video generation. These live in `demo/`, `examples/`, and `tests/`.
+This repo is the `Visualang` app: a language-learning video companion that turns a YouTube URL or uploaded audio file into transcript-driven storybook visuals and an exported video. Frontend lives in `frontend/`; backend lives in `backend/`.
 
 ## Common Commands
 
@@ -53,13 +50,10 @@ pnpm dev
 cd frontend
 pnpm build
 
-# Run the Gradio demo
-pip install gradio
-python demo/app.py
-
 # Run tests
-pytest tests/ -v
-pytest tests/test_api.py::TestErrors -v
+pytest tests/test_visualang_phase2.py -v
+pytest tests/test_generate.py -v
+pytest tests/test_export.py -v
 ```
 
 ## Environment
@@ -74,11 +68,7 @@ pytest tests/test_api.py::TestErrors -v
 
 - Stack: React 19 + Vite.
 - Entry files: `frontend/src/main.jsx`, `frontend/src/App.jsx`.
-- `frontend/src/App.jsx` orchestrates the whole UX:
-  - transcript fetch
-  - concept extraction
-  - SSE image generation
-  - background export polling
+- `frontend/src/App.jsx` orchestrates transcript fetch, concept extraction, SSE image generation, preview, and export polling.
 - `frontend/src/config.js` holds the backend base URL.
 
 ### Backend
@@ -90,7 +80,8 @@ pytest tests/test_api.py::TestErrors -v
   - `backend/routers/concepts.py`
   - `backend/routers/generate.py`
   - `backend/routers/export.py`
-- CORS is currently open to `*`.
+  - `backend/routers/metrics.py`
+  - `backend/routers/demo.py`
 - Health check: `GET /health`
 
 ### Runtime Agents
@@ -101,21 +92,19 @@ pytest tests/test_api.py::TestErrors -v
   - `ImagePromptRewriter`
 - They are wired through the backend routers and documented in detail in `backend/AGENTS.md`.
 
-### SDK / Demo / Tests
+### Tests
 
-- `demo/nunchaku.py` contains the `NunchakuClient`.
-- `demo/app.py` is the Gradio demo.
-- `examples/` contains curl, JavaScript, and Python examples.
-- `tests/test_api.py` contains live API tests.
+- `tests/test_visualang_phase2.py` covers orchestration flow.
+- `tests/test_generate.py` covers generation router behavior.
+- `tests/test_export.py` covers export packaging behavior.
 
 ## Working Conventions
 
-- Prefer focused edits over broad rewrites; this repo mixes product code and hackathon/demo code.
+- Prefer focused edits over broad rewrites; preserve the current frontend/backend split.
 - Treat `backend/.env` as local-only. Never print or copy real secrets into docs, fixtures, or commit messages.
-- Preserve the frontend/backend split. Shared behavior should usually be coordinated through API contracts, not duplicated logic.
+- Shared behavior should usually be coordinated through API contracts, not duplicated logic.
 - When changing the generation pipeline, check both `frontend/src/App.jsx` and the corresponding backend router payloads.
 - When changing backend agents, also consult `backend/AGENTS.md` before editing prompts, tool wiring, or model selection.
-- Live API tests spend credits and require valid keys; avoid running them unless the task needs it.
 
 ## Related Documentation
 
@@ -123,4 +112,4 @@ pytest tests/test_api.py::TestErrors -v
 |------|-------------|-----------------|
 | [backend/AGENTS.md](backend/AGENTS.md) | Runtime agent flow, files, model usage, router integration | Editing `backend/agents/*` or agent-backed routers |
 | [visualang-prompt-for-claude-code.md](visualang-prompt-for-claude-code.md) | Full Visualang build spec, UX goals, implementation phases | Checking product requirements or phase-specific behavior |
-| [README.md](README.md) | Nunchaku API usage, models, pricing, examples | Working on the SDK, demo app, or live API examples/tests |
+| [README.md](README.md) | Visualang overview, local setup, testing, deployment entrypoints | Checking current app behavior or local run instructions |

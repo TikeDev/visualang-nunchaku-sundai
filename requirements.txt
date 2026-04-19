@@ -1,6 +1,2 @@
-requests
-gradio
-openai
-Pillow
+-r backend/requirements.txt
 pytest
-python-dotenv

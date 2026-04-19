@@ -4,112 +4,48 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This repo contains two things:
+This repo is the `Visualang` app: a comprehensible-input visual companion for language learning. It takes a YouTube URL or local audio file, extracts transcript, uses backend runtime agents to identify visual moments, generates storybook illustrations via Nunchaku, and renders a downloadable `.mp4` with synced audio. The frontend lives in `frontend/` (React + Vite) and the backend lives in `backend/` (FastAPI).
 
-**1. Nunchaku API SDK** — Python client wrapper, Gradio demo, multi-language examples, pytest tests for the Nunchaku image/video generation API. Lives in `demo/`, `examples/`, `tests/`.
+The backend pipeline is guarded by three runtime agents: `TranscriptGate`, `ConceptExtractor`, and `ImagePromptRewriter`. See [`backend/AGENTS.md`](backend/AGENTS.md) before changing prompts, model wiring, or router integration.
 
-**2. Visualang** — A comprehensible input visual companion for language learning. Takes a YouTube URL or local audio file, extracts transcript, uses Claude to identify visual moments, generates storybook illustrations via Nunchaku (~1s/image), and renders a downloadable `.mp4` with Ken Burns animations + synced audio. Lives in `frontend/` (React + Vite) and `backend/` (FastAPI).
-
-The backend pipeline is guarded and self-corrected by three runtime agents (TranscriptGate, ConceptExtractor, ImagePromptRewriter) — see [`backend/AGENTS.md`](backend/AGENTS.md) for how they plug into the routers.
-
-## Visualang Commands
+## Commands
 
 ```bash
-# Backend (from repo root)
+# Backend
 cd backend && pip install -r requirements.txt
-cp backend/.env.example backend/.env  # fill in API keys
-uvicorn main:app --reload             # runs on http://localhost:8000
+cp .env.example .env
+uvicorn main:app --reload
 
-# Frontend (from repo root)
+# Frontend
 pnpm install
-cd frontend && pnpm dev               # runs on http://localhost:5173
+cd frontend && pnpm dev
 
-# Required env vars in backend/.env:
-# ANTHROPIC_API_KEY, OPENAI_API_KEY, NUNCHAKU_API_KEY
+# Frontend build
+cd frontend && pnpm build
+
+# Tests
+pytest tests/test_visualang_phase2.py -v
+pytest tests/test_generate.py -v
+pytest tests/test_export.py -v
 ```
-
-## Common Commands
-
-```bash
-# Install runtime deps
-pip install requests Pillow
-
-# Run the Gradio demo (all 4 endpoints + pipeline tab)
-pip install gradio
-python demo/app.py
-
-# Run a single example
-python examples/python/text_to_image.py
-
-# Run full test suite (live API calls — requires NUNCHAKU_API_KEY)
-pytest tests/ -v
-
-# Run only error tests (no API key needed)
-pytest tests/test_api.py::TestErrors -v
-```
-
-Set `NUNCHAKU_API_KEY=sk-nunchaku-...` before any API call or test.
 
 ## Architecture
 
-### Core client: `demo/nunchaku.py` — `NunchakuClient`
+- `frontend/src/App.jsx` orchestrates transcript fetch, concept extraction, image generation, preview, and export polling.
+- `frontend/src/components/Player.jsx` handles synced playback and scene presentation.
+- `backend/main.py` wires the FastAPI app, CORS, static image serving, and routers.
+- `backend/routers/` contains transcript, concepts, generate, export, metrics, and demo endpoints.
+- `backend/scripts/seed_demo.py` generates local seeded demo fixtures consumed by `/demo/*`.
 
-Single class with four generation methods. All return raw `bytes`.
+## Notes
 
-| Method | Endpoint |
-|---|---|
-| `text_to_image(prompt, model, size, tier, seed, ...)` | `/v1/images/generations` |
-| `edit_image(image, prompt, model, ...)` | `/v1/images/edits` |
-| `text_to_video(prompt, model, ...)` | `/v1/videos/generations` |
-| `image_to_video(image, prompt, model, ...)` | `/v1/videos/generations` |
-
-Private helpers: `_to_base64(image)` (accepts path/bytes/str), `_headers()`, `_post(path, payload, timeout)` (auto-retries on 429 via Retry-After).
-
-### Demo: `demo/app.py`
-
-Gradio app with 5 tabs: Text-to-Image, Edit Image, Text-to-Video, Image-to-Video, and Pipeline (chains all three).
-
-### Tests: `tests/test_api.py`
-
-Class per endpoint: `TestTextToImage`, `TestImageToImage`, `TestTextToVideo`, `TestImageToVideo`, `TestNunchakuClient`, `TestErrors`. All live tests hit the real API.
-
-## API Quirks
-
-**Image-to-Image input** — base64 data URI in `url` field, NOT multipart:
-```json
-{ "url": "data:image/jpeg;base64,..." }
-```
-
-**Image-to-Video input** — uses multimodal `messages` array:
-```json
-{
-  "messages": [{
-    "role": "user",
-    "content": [
-      {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,..."}},
-      {"type": "text", "text": "prompt"}
-    ]
-  }]
-}
-```
-
-**OpenAI SDK compatibility** — only Text-to-Image works cleanly; Image-to-Image and video endpoints require raw `requests`.
-
-**Rate limiting** — 429 is retried up to 12× with 10s waits; Retry-After header is respected.
-
-## Models & Tiers
-
-| Model | Type | Tiers |
-|---|---|---|
-| `nunchaku-qwen-image` | T2I | `fast` (28-step), `radically_fast` (4-step) |
-| `nunchaku-flux.2-klein-9b` | T2I | `fast` only |
-| `nunchaku-qwen-image-edit` | I2I | `fast`, `radically_fast` |
-| `nunchaku-flux.2-klein-9b-edit` | I2I | `fast` only |
-| `nunchaku-wan2.2-lightning-t2v` | T2V | `fast` only |
-| `nunchaku-wan2.2-lightning-i2v` | I2V | `fast` only |
+- Keep `.env`, `.env.local`, `backend/.env`, and `frontend/.env` out of git.
+- `tests/test_generate.py` may require a valid `NUNCHAKU_API_KEY` depending on the path being exercised.
+- Generated backend assets are served from `/tmp/visualang_images`.
 
 ## Related Documentation
 
 | File | Description | When to consult |
 |------|-------------|-----------------|
-| [visualang-prompt-for-claude-code.md](visualang-prompt-for-claude-code.md) | Full Visualang build spec — all phases, UX spec, constraints | Starting any new phase, checking phase requirements, or testing instructions |
+| [visualang-prompt-for-claude-code.md](visualang-prompt-for-claude-code.md) | Full Visualang build spec, UX goals, and phase notes | Checking original product intent or phase-specific expectations |
+| [backend/AGENTS.md](backend/AGENTS.md) | Runtime agent flow, model usage, and router integration | Editing `backend/agents/*` or agent-backed routers |

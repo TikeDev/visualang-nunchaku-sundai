@@ -2,8 +2,6 @@
 
 Visualang is a language-learning video companion built with React and FastAPI. It takes a YouTube URL or uploaded audio file, extracts a transcript, turns key moments into storybook-style images, previews the sequence in the browser, and exports a downloadable video package.
 
-This repository also contains supporting Nunchaku API client code, examples, a Gradio demo, and live API tests. The main product surface is the Visualang app in `frontend/` and `backend/`.
-
 ## What Visualang Does Today
 
 - Accepts a YouTube link or local audio upload.
@@ -20,10 +18,7 @@ This repository also contains supporting Nunchaku API client code, examples, a G
 ```text
 frontend/   React 19 + Vite app
 backend/    FastAPI app, runtime agents, routers, export pipeline
-demo/       Gradio app and Python Nunchaku client wrapper
-examples/   cURL, JavaScript, and Python API examples
-tests/      Visualang tests plus live Nunchaku API tests
-docs/       Deployment and demo operations notes
+tests/      Visualang-focused tests
 ```
 
 ## Local Development
@@ -153,7 +148,7 @@ If omitted, the frontend falls back to `http://localhost:8000`.
 
 ## Testing
 
-Visualang-focused tests:
+Run the local Visualang test suite:
 
 ```bash
 pytest tests/test_visualang_phase2.py -v
@@ -161,39 +156,13 @@ pytest tests/test_generate.py -v
 pytest tests/test_export.py -v
 ```
 
-Live API tests:
-
-```bash
-pytest tests/test_api.py -v
-pytest tests/test_api.py::TestErrors -v
-```
-
 Notes:
 
-- `tests/test_api.py` hits the live Nunchaku API and requires `NUNCHAKU_API_KEY`.
-- Live API tests spend credits and are slower than the local test suite.
-- The local tests are the safer default when changing the Visualang app itself.
-
-## Nunchaku SDK, Demo, and Examples
-
-This repo still includes standalone Nunchaku experimentation tools for contributors:
-
-- `demo/nunchaku.py` contains the Python client wrapper.
-- `demo/app.py` runs a Gradio interface for text-to-image, image edit, text-to-video, image-to-video, and a chained pipeline demo.
-- `examples/` contains cURL, JavaScript, and Python usage examples.
-- `tests/test_api.py` provides end-to-end coverage against the live API.
-
-To run the Gradio demo:
-
-```bash
-export NUNCHAKU_API_KEY=sk-nunchaku-...
-pip install gradio requests Pillow
-python demo/app.py
-```
+- These tests cover the current Visualang app rather than the old fork extras.
+- `tests/test_generate.py` may require a valid `NUNCHAKU_API_KEY` depending on the path being exercised.
 
 ## Related Documentation
 
 - [backend/AGENTS.md](backend/AGENTS.md) for runtime agent behavior, model usage, and router integration
-- [docs/render-deployment.md](docs/render-deployment.md) for the Render deployment path
-- [docs/render-demo-checklist.md](docs/render-demo-checklist.md) for pre-demo operational checks
+- [render.yaml](render.yaml) for the Render service definitions
 - [visualang-prompt-for-claude-code.md](visualang-prompt-for-claude-code.md) for the original build spec and product framing
