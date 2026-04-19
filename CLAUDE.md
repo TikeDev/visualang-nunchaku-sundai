@@ -107,3 +107,9 @@ Class per endpoint: `TestTextToImage`, `TestImageToImage`, `TestTextToVideo`, `T
 | `nunchaku-flux.2-klein-9b-edit` | I2I | `fast` only |
 | `nunchaku-wan2.2-lightning-t2v` | T2V | `fast` only |
 | `nunchaku-wan2.2-lightning-i2v` | I2V | `fast` only |
+
+## Related Documentation
+
+| File | Description | When to consult |
+|------|-------------|-----------------|
+| [visualang-prompt-for-claude-code.md](visualang-prompt-for-claude-code.md) | Full Visualang build spec — all phases, UX spec, constraints | Starting any new phase, checking phase requirements, or testing instructions |
