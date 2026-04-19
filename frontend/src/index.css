@@ -1,0 +1,69 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --color-cream: #F5F0E8;
+  --color-terracotta: #C17B5C;
+  --color-terracotta-dark: #9A5E42;
+  --color-sage: #7A9E7E;
+  --color-warm-dark: #2C2416;
+  --color-warm-mid: #6B5744;
+  --color-warm-light: #D9C5B2;
+
+  --font-heading: 'Playfair Display', Georgia, serif;
+  --font-body: 'Source Serif 4', Georgia, serif;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-cream);
+  color: var(--color-warm-dark);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-heading);
+}
+
+button {
+  font-family: var(--font-body);
+  cursor: pointer;
+}
+
+input, select {
+  font-family: var(--font-body);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes ken-burns-zoom-in-left {
+  from { transform: scale(1) translate(0, 0); }
+  to { transform: scale(1.08) translate(-2%, -1%); }
+}
+
+@keyframes ken-burns-zoom-in-right {
+  from { transform: scale(1) translate(0, 0); }
+  to { transform: scale(1.08) translate(2%, 1%); }
+}
+
+@keyframes ken-burns-zoom-out-left {
+  from { transform: scale(1.08) translate(0, 0); }
+  to { transform: scale(1) translate(-1%, 1%); }
+}
+
+@keyframes ken-burns-zoom-out-right {
+  from { transform: scale(1.08) translate(0, 0); }
+  to { transform: scale(1) translate(2%, -1%); }
+}

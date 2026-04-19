@@ -1,0 +1,26 @@
+{
+  "name": "visualang-monorepo",
+  "private": true,
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "prepare": "husky",
+    "dev": "concurrently --names 'backend,frontend' --prefix-colors 'yellow,cyan' 'cd backend && uvicorn main:app --reload' 'cd frontend && pnpm dev'"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.2"
+  },
+  "lint-staged": {
+    "frontend/src/**/*.{js,jsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "backend/**/*.py": [
+      "flake8 --max-line-length=100"
+    ]
+  },
+  "packageManager": "pnpm@10.30.3+sha512.c961d1e0a2d8e354ecaa5166b822516668b7f44cb5bd95122d590dd81922f606f5473b6d23ec4a5be05e7fcd18e8488d47d978bbe981872f1145d06e9a740017"
+}

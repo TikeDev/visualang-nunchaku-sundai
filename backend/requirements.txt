@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+python-dotenv
+anthropic
+openai
+requests
+youtube-transcript-api==1.2.4
+yt-dlp
+httpx
+ffmpeg-python
+python-multipart
+flake8

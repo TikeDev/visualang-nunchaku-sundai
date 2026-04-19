@@ -1,0 +1,7 @@
+#!/bin/sh
+
+# Frontend: lint + build
+cd frontend && pnpm lint && pnpm build
+
+# Backend: lint
+cd ../backend && python -m flake8 . --max-line-length=100 --exclude=__pycache__,.venv

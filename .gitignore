@@ -24,3 +24,17 @@ node_modules/
 # IDE
 .vscode/
 .idea/
+
+# Frontend build
+frontend/dist/
+frontend/.env
+
+# Backend venv
+backend/.env
+backend/.venv/
+
+# Generated images (Visualang)
+/tmp/visualang_images/
+
+# OS
+.DS_Store
