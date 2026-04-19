@@ -13,7 +13,7 @@ function StepIcon({ state }) {
   return <Clock size={22} color="var(--color-warm-light)" />
 }
 
-export default function LoadingScreen({ steps, title }) {
+export default function LoadingScreen({ steps, title, warning }) {
   return (
     <div style={styles.container}>
       {title && <p style={styles.title}>{title}</p>}
@@ -32,6 +32,7 @@ export default function LoadingScreen({ steps, title }) {
             </li>
           ))}
         </ul>
+        {warning && <div style={styles.warning}>{warning}</div>}
       </div>
     </div>
   )
@@ -97,5 +98,15 @@ const styles = {
   detail: {
     fontSize: '0.8rem',
     color: 'var(--color-warm-mid)',
+  },
+  warning: {
+    marginTop: '1.5rem',
+    padding: '0.8rem 0.9rem',
+    borderRadius: '10px',
+    background: 'rgba(207, 141, 74, 0.12)',
+    border: '1px solid rgba(207, 141, 74, 0.26)',
+    color: 'var(--color-warm-dark)',
+    fontSize: '0.85rem',
+    lineHeight: 1.5,
   },
 }

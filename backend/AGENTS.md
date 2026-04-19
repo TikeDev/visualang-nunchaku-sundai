@@ -8,14 +8,14 @@ state-machine runner (no LangChain/LangGraph).
 
 | Agent | Entry point | Called from | Model | Purpose |
 |---|---|---|---|---|
-| TranscriptGate | `transcript_gate.run(transcript, title=, duration=)` | `/transcript/youtube`, `/transcript/upload` | Haiku 4.5 | Reject unusable transcripts before the pipeline spends money |
+| TranscriptGate | `transcript_gate.run(transcript, title=, duration=)` | `/transcript` | Haiku 4.5 | Reject unusable transcripts before the pipeline spends money |
 | ConceptExtractor | `concept_extractor.run(transcript)` | `/concepts` | Sonnet 4.6 (+ Haiku critique) | Draft → critique → fix loop for visual concepts |
 | ImagePromptRewriter | `image_rewriter.run(prompt, failure_signal, concept)` | `/generate` (per image, on vision-check failure) | Haiku 4.5 | Rewrite prompts that produced bad images |
 
 ## Flow through the pipeline
 
 ```
-POST /transcript/*        POST /concepts          POST /generate (stream)
+POST /transcript          POST /concepts          POST /generate (stream)
       │                        │                         │
       ▼                        ▼                         ▼
   TranscriptGate           ConceptExtractor         per-image:
@@ -41,10 +41,11 @@ agents/
 
 ## Integration points (already wired)
 
-- [`routers/transcript.py`](./routers/transcript.py) — both endpoints run `TranscriptGate`
-  after normalization. Rejects with HTTP 422. Verdict is returned in the
-  response body under `gate: { verdict, reason, detected_language }` so the
-  frontend can surface warnings.
+- [`routers/transcript.py`](./routers/transcript.py) — the unified endpoint runs
+  `TranscriptGate` after normalization for either YouTube JSON input or local
+  audio upload. Rejects with HTTP 422. Verdict is returned in the response
+  body under `gate: { verdict, reason, detected_language }` so the frontend
+  can surface warnings.
 - [`routers/concepts.py`](./routers/concepts.py) — replaced the naive single
   Claude call with `ConceptExtractor`.
 - [`routers/generate.py`](./routers/generate.py) — each generated image is

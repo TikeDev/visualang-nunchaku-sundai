@@ -4,7 +4,7 @@ import uuid
 from pathlib import Path
 
 import yt_dlp
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 from youtube_transcript_api import YouTubeTranscriptApi
 
@@ -84,33 +84,59 @@ def extract_video_id(url: str) -> str:
     raise ValueError(f"Could not extract video ID from URL: {url}")
 
 
+def select_youtube_transcript(video_id: str):
+    ytt_api = YouTubeTranscriptApi()
+    transcript_list = ytt_api.list(video_id)
+    transcripts = list(transcript_list)
+    if not transcripts:
+        raise ValueError(f"No transcripts available for video {video_id}")
+
+    # Prefer manually created subtitles when present, otherwise fall back to the
+    # first available auto-generated track. This preserves the video's spoken
+    # language instead of defaulting to English-only captions.
+    manual = [item for item in transcripts if not item.is_generated]
+    selected = manual[0] if manual else transcripts[0]
+    logger.info(
+        "Selected %s transcript for %s: %s (%s)",
+        "generated" if selected.is_generated else "manual",
+        video_id,
+        selected.language_code,
+        selected.language,
+    )
+    return selected
+
+
 # --- Routes ---
 
 class YoutubeRequest(BaseModel):
     video_url: str
 
 
-@router.post("/transcript/youtube")
-async def transcript_youtube(body: YoutubeRequest):
-    logger.info(f"Transcript request for YouTube URL: {body.video_url}")
+async def _handle_youtube(video_url: str):
+    logger.info(f"Transcript request for YouTube URL: {video_url}")
     try:
-        video_id = extract_video_id(body.video_url)
+        video_id = extract_video_id(video_url)
         logger.info(f"Extracted video ID: {video_id}")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     try:
-        ytt_api = YouTubeTranscriptApi()
-        raw_transcript = ytt_api.fetch(video_id).to_raw_data()
+        selected_transcript = select_youtube_transcript(video_id)
+        raw_transcript = selected_transcript.fetch().to_raw_data()
         normalized = normalize_transcript(raw_transcript, "youtube")
-        logger.info(f"Fetched transcript: {len(normalized)} segments")
+        logger.info(
+            "Fetched transcript: %s segments from %s (%s)",
+            len(normalized),
+            selected_transcript.language_code,
+            selected_transcript.language,
+        )
     except Exception as e:
         logger.error(f"Transcript fetch failed: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch transcript: {e}")
 
     info: dict | None = None
     try:
-        info = get_video_info(body.video_url)
+        info = get_video_info(video_url)
         title = info["title"]
         logger.info(f"Video title: {title}")
     except Exception as e:
@@ -132,7 +158,7 @@ async def transcript_youtube(body: YoutubeRequest):
     audio_base = str(IMAGE_DIR / video_id)
     audio_path = audio_base + ".mp3"
     try:
-        extract_audio(body.video_url, audio_base)
+        extract_audio(video_url, audio_base)
         logger.info(f"Audio extracted to: {audio_path}")
     except Exception as e:
         logger.error(f"Audio extraction failed: {e}")
@@ -150,12 +176,11 @@ async def transcript_youtube(body: YoutubeRequest):
     }
 
 
-@router.post("/transcript/upload")
-async def transcript_upload(file: UploadFile = File(...)):
+async def _handle_upload(file: UploadFile):
     logger.info(f"Transcript upload: {file.filename}, size={file.size}")
 
     allowed = {".mp3", ".wav", ".m4a", ".aac", ".ogg"}
-    suffix = Path(file.filename).suffix.lower()
+    suffix = Path(file.filename or "").suffix.lower()
     if suffix not in allowed:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {suffix}")
 
@@ -190,3 +215,36 @@ async def transcript_upload(file: UploadFile = File(...)):
             "detected_language": verdict.detected_language,
         },
     }
+
+
+@router.post("/transcript")
+async def transcript(request: Request):
+    content_type = request.headers.get("content-type", "")
+    if content_type.startswith("application/json"):
+        try:
+            body = YoutubeRequest.model_validate(await request.json())
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON body: {e}")
+        return await _handle_youtube(body.video_url)
+
+    if content_type.startswith("multipart/form-data"):
+        form = await request.form()
+        file = form.get("file")
+        if file is None or not hasattr(file, "filename"):
+            raise HTTPException(status_code=400, detail="Missing file upload")
+        return await _handle_upload(file)
+
+    raise HTTPException(
+        status_code=400,
+        detail="Unsupported content type. Use application/json or multipart/form-data.",
+    )
+
+
+@router.post("/transcript/youtube")
+async def transcript_youtube(body: YoutubeRequest):
+    return await _handle_youtube(body.video_url)
+
+
+@router.post("/transcript/upload")
+async def transcript_upload(file: UploadFile = File(...)):
+    return await _handle_upload(file)

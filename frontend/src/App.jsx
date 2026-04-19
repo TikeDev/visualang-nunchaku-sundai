@@ -44,7 +44,23 @@ async function fetchWithRetry(url, options, onRetry) {
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const res = await fetch(url, options)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) {
+        let message = `HTTP ${res.status}`
+        try {
+          const raw = await res.text()
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw)
+              message = parsed.detail || parsed.error || raw
+            } catch {
+              message = raw
+            }
+          }
+        } catch {
+          // ignore body parsing failures and keep the HTTP status message
+        }
+        throw new Error(message)
+      }
       return res
     } catch (err) {
       if (attempt === 1) {
@@ -56,6 +72,36 @@ async function fetchWithRetry(url, options, onRetry) {
       }
     }
   }
+}
+
+async function readErrorMessage(response) {
+  let message = `HTTP ${response.status}`
+  try {
+    const raw = await response.text()
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw)
+        message = parsed.detail || parsed.error || raw
+      } catch {
+        message = raw
+      }
+    }
+  } catch {
+    // ignore body parsing failures and keep the HTTP status message
+  }
+  return message
+}
+
+function toAbsoluteUrl(url) {
+  if (!url || /^https?:\/\//.test(url)) return url
+  return `${API_URL}${url.startsWith('/') ? url : `/${url}`}`
+}
+
+function normalizeImages(images) {
+  return images.map(image => ({
+    ...image,
+    image_url: toAbsoluteUrl(image.image_url),
+  }))
 }
 
 function transition(setState, state) {
@@ -76,6 +122,7 @@ export default function App() {
   const [exportJobId, setExportJobId] = useState(null)
   const [exportDone, setExportDone] = useState(false)
   const [error, setError] = useState('')
+  const [gateWarning, setGateWarning] = useState('')
   const [genProgress, setGenProgress] = useState({ index: 0, total: 0, concept: '' })
   const [retryMsg, setRetryMsg] = useState('')
 
@@ -90,6 +137,7 @@ export default function App() {
     setExportJobId(null)
     setExportDone(false)
     setError('')
+    setGateWarning('')
     setGenProgress({ index: 0, total: 0, concept: '' })
     setRetryMsg('')
     console.log('[Visualang] State: idle (reset)')
@@ -97,6 +145,7 @@ export default function App() {
 
   async function handleSubmit(input) {
     setError('')
+    setGateWarning('')
     setRetryMsg('')
 
     // Extract YouTube video ID if needed
@@ -112,7 +161,7 @@ export default function App() {
       let res
       if (input.type === 'youtube') {
         res = await fetchWithRetry(
-          `${API_URL}/transcript/youtube`,
+          `${API_URL}/transcript`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -124,7 +173,7 @@ export default function App() {
         const form = new FormData()
         form.append('file', input.file)
         res = await fetchWithRetry(
-          `${API_URL}/transcript/upload`,
+          `${API_URL}/transcript`,
           { method: 'POST', body: form },
           setRetryMsg
         )
@@ -134,10 +183,13 @@ export default function App() {
       setTitle(transcriptData.title)
       setTranscript(transcriptData.transcript)
       setAudioPath(transcriptData.audio_path)
+      if (transcriptData.gate?.verdict === 'warn' && transcriptData.gate?.reason) {
+        setGateWarning(transcriptData.gate.reason)
+      }
       console.log(`[Visualang] Transcript: ${transcriptData.transcript.length} segments`)
     } catch (err) {
       console.error('[Visualang] Transcript failed:', err)
-      setError('Failed to fetch transcript. Please try again.')
+      setError(err.message || 'Failed to fetch transcript. Please try again.')
       setAppState(STATES.IDLE)
       return
     }
@@ -159,20 +211,22 @@ export default function App() {
       console.log(`[Visualang] Concepts: ${concepts.length}`)
     } catch (err) {
       console.error('[Visualang] Concepts failed:', err)
-      setError('Failed to extract concepts. Please try again.')
+      setError(err.message || 'Failed to extract concepts. Please try again.')
       setAppState(STATES.IDLE)
       return
     }
 
     // --- Step 3: Image generation (SSE) ---
     transition(setAppState, STATES.GENERATING_IMAGES)
+    let generatedImages = []
     try {
       const response = await fetch(`${API_URL}/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ concepts }),
       })
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      if (!response.ok) throw new Error(await readErrorMessage(response))
+      if (!response.body) throw new Error('Image stream was empty.')
 
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
@@ -187,9 +241,15 @@ export default function App() {
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue
           const data = JSON.parse(line.slice(6))
+          if (data.error) {
+            throw new Error(data.error)
+          }
           if (data.done) {
-            setImages(data.images)
-            console.log(`[Visualang] State: generating_images (${data.images.length}/${data.images.length})`)
+            generatedImages = normalizeImages(data.images)
+            setImages(generatedImages)
+            console.log(
+              `[Visualang] State: generating_images (${generatedImages.length}/${generatedImages.length})`
+            )
           } else {
             setGenProgress({ index: data.index, total: data.total, concept: data.concept })
             console.log(`[Visualang] State: generating_images (${data.index}/${data.total})`)
@@ -198,22 +258,22 @@ export default function App() {
       }
     } catch (err) {
       console.error('[Visualang] Image generation failed:', err)
-      setError('Image generation failed. Please try again.')
+      setError(err.message || 'Image generation failed. Please try again.')
       setAppState(STATES.IDLE)
       return
     }
 
     // --- Preview ready — kick off export in background ---
     transition(setAppState, STATES.PREVIEW_READY)
-    kickOffExport(concepts, transcriptData)
+    kickOffExport(concepts, transcriptData, generatedImages)
   }
 
-  async function kickOffExport(concepts, transcriptData) {
+  async function kickOffExport(concepts, transcriptData, generatedImages) {
     transition(setAppState, STATES.EXPORTING)
     try {
       const exportImages = concepts.map((c, i) => ({
         timestamp_seconds: c.timestamp_seconds,
-        image_url: images[i]?.image_url ?? '',
+        image_url: generatedImages[i]?.image_url ?? '',
         duration_seconds:
           i < concepts.length - 1
             ? concepts[i + 1].timestamp_seconds - c.timestamp_seconds
@@ -307,7 +367,7 @@ export default function App() {
   }
 
   if (isLoading) {
-    return <LoadingScreen steps={buildSteps()} title={title || retryMsg} />
+    return <LoadingScreen steps={buildSteps()} title={title || retryMsg} warning={gateWarning} />
   }
 
   if (
@@ -327,6 +387,7 @@ export default function App() {
         {appState === STATES.EXPORTING && (
           <div style={styles.exportingBadge}>Rendering video...</div>
         )}
+        {gateWarning && <div style={styles.warningBadge}>{gateWarning}</div>}
         {appState === STATES.DONE && exportJobId && (
           <div style={styles.downloadBar}>
             <a
@@ -395,6 +456,21 @@ const styles = {
     fontSize: '0.8rem',
     backdropFilter: 'blur(4px)',
     zIndex: 10,
+  },
+  warningBadge: {
+    position: 'fixed',
+    top: '1.5rem',
+    left: '1.5rem',
+    maxWidth: '420px',
+    background: 'rgba(255, 243, 224, 0.92)',
+    color: '#5b3916',
+    padding: '0.75rem 0.95rem',
+    borderRadius: '10px',
+    border: '1px solid rgba(207, 141, 74, 0.35)',
+    boxShadow: '0 10px 30px rgba(44,36,22,0.08)',
+    fontSize: '0.85rem',
+    lineHeight: 1.5,
+    zIndex: 11,
   },
   downloadBar: {
     position: 'fixed',

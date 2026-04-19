@@ -107,23 +107,27 @@ async def _generate_with_recovery(concept: dict) -> dict:
 async def generate_images_stream(concepts: list):
     total = len(concepts)
     results = []
-    for i, concept in enumerate(concepts):
-        logger.info(f"Generating image {i + 1}/{total}: '{concept['concept']}'")
-        final = await _generate_with_recovery(concept)
-        filename = Path(final["filepath"]).name
-        image_url = f"/images/{filename}"
-        results.append({
-            "timestamp_seconds": concept["timestamp_seconds"],
-            "image_url": image_url,
-        })
-        event = json.dumps({
-            "index": i + 1,
-            "total": total,
-            "image_url": image_url,
-            "concept": concept["concept"],
-        })
-        yield f"data: {event}\n\n"
-    yield f"data: {json.dumps({'done': True, 'images': results})}\n\n"
+    try:
+        for i, concept in enumerate(concepts):
+            logger.info(f"Generating image {i + 1}/{total}: '{concept['concept']}'")
+            final = await _generate_with_recovery(concept)
+            filename = Path(final["filepath"]).name
+            image_url = f"/images/{filename}"
+            results.append({
+                "timestamp_seconds": concept["timestamp_seconds"],
+                "image_url": image_url,
+            })
+            event = json.dumps({
+                "index": i + 1,
+                "total": total,
+                "image_url": image_url,
+                "concept": concept["concept"],
+            })
+            yield f"data: {event}\n\n"
+        yield f"data: {json.dumps({'done': True, 'images': results})}\n\n"
+    except Exception as e:
+        logger.exception("Image generation stream failed")
+        yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
 
 class GenerateRequest(BaseModel):
