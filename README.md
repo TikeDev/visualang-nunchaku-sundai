@@ -1,11 +1,11 @@
 # Visualang
 
-Visualang is a language-learning video companion built with React and FastAPI. It takes a YouTube URL or uploaded audio file, extracts a transcript, turns key moments into storybook-style images, previews the sequence in the browser, and exports a downloadable video package.
+Visualang is a language-learning video companion built with React and FastAPI. It takes a YouTube video or Shorts URL, or an uploaded audio file, extracts a transcript, turns key moments into storybook-style images, previews the sequence in the browser, and exports a downloadable video package.
 
 ## What Visualang Does Today
 
-- Accepts a YouTube link or local audio upload.
-- Fetches or transcribes the source audio into timestamped transcript segments.
+- Accepts a YouTube video link, YouTube Shorts link, or local audio upload.
+- Fetches YouTube captions when available and falls back to transcribing extracted audio when they are not.
 - Runs a transcript gate before the expensive parts of the pipeline.
 - Extracts visual concepts with backend runtime agents.
 - Streams image generation progress from the backend to the frontend.
@@ -122,7 +122,7 @@ If omitted, the frontend falls back to `http://localhost:8000`.
 ## How The Pipeline Works
 
 1. `POST /transcript`
-   Accepts either JSON with a YouTube URL or multipart upload with an audio file. YouTube uses `youtube-transcript-api` plus `yt-dlp`; local uploads use OpenAI transcription.
+   Accepts either JSON with a YouTube video or Shorts URL, or multipart upload with an audio file. YouTube first tries `youtube-transcript-api`, then falls back to `yt-dlp` + OpenAI transcription when captions are unavailable or fail to load; local uploads use OpenAI transcription directly.
 2. Transcript gate
    `TranscriptGate` evaluates whether the transcript is usable before the rest of the pipeline runs.
 3. `POST /concepts`

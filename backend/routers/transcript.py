@@ -2,6 +2,7 @@ import logging
 import re
 import uuid
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import yt_dlp
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
@@ -92,19 +93,34 @@ def transcribe_audio(audio_path: str) -> list:
 
 
 def extract_video_id(url: str) -> str:
-    patterns = [
-        r"youtube\.com/watch\?v=([^&]+)",
-        r"youtu\.be/([^?]+)",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, url)
-        if match:
-            return match.group(1)
+    parsed = urlparse(url)
+    host = (parsed.netloc or "").lower()
+    path = parsed.path or ""
+
+    if host == "youtu.be":
+        candidate = path.lstrip("/").split("/", 1)[0]
+        if candidate:
+            return candidate
+
+    if host == "youtube.com" or host.endswith(".youtube.com"):
+        if path == "/watch":
+            candidate = parse_qs(parsed.query).get("v", [None])[0]
+            if candidate:
+                return candidate
+
+        short_match = re.match(r"^/shorts/([^/?]+)", path)
+        if short_match:
+            return short_match.group(1)
+
     raise ValueError(f"Could not extract video ID from URL: {url}")
 
 
 def build_audio_url(audio_path: str) -> str:
     return f"/media/audio/{Path(audio_path).name}"
+
+
+def build_youtube_audio_path(video_id: str) -> str:
+    return str(IMAGE_DIR / f"{video_id}.mp3")
 
 
 def resolve_audio_file(filename: str) -> Path:
@@ -156,6 +172,19 @@ async def _handle_youtube(video_url: str):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    info: dict | None = None
+    title = "Untitled"
+    try:
+        info = get_video_info(video_url)
+        title = info["title"]
+        logger.info(f"Video title: {title}")
+    except Exception as e:
+        logger.warning(f"Could not fetch video info: {e}")
+
+    audio_base = str(IMAGE_DIR / video_id)
+    audio_path = build_youtube_audio_path(video_id)
+    audio_ready = False
+
     try:
         selected_transcript = select_youtube_transcript(video_id)
         raw_transcript = selected_transcript.fetch().to_raw_data()
@@ -167,17 +196,34 @@ async def _handle_youtube(video_url: str):
             selected_transcript.language,
         )
     except Exception as e:
-        logger.error(f"Transcript fetch failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch transcript: {e}")
+        logger.warning(
+            "Transcript fetch failed for %s; falling back to Whisper transcription: %s",
+            video_id,
+            e,
+        )
+        try:
+            extract_audio(video_url, audio_base)
+            audio_ready = True
+            logger.info(f"Audio extracted to: {audio_path}")
+        except Exception as audio_error:
+            logger.error(f"Audio extraction failed during transcript fallback: {audio_error}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to fetch transcript: {e}. Audio extraction failed: {audio_error}",
+            )
 
-    info: dict | None = None
-    try:
-        info = get_video_info(video_url)
-        title = info["title"]
-        logger.info(f"Video title: {title}")
-    except Exception as e:
-        logger.warning(f"Could not fetch video info: {e}")
-        title = "Untitled"
+        try:
+            normalized = transcribe_audio(audio_path)
+            logger.info("Transcribed fallback audio: %s segments", len(normalized))
+        except Exception as transcription_error:
+            logger.error(f"Whisper fallback failed: {transcription_error}")
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"Failed to fetch transcript: {e}. "
+                    f"Transcription fallback failed: {transcription_error}"
+                ),
+            )
 
     # Prefer yt-dlp duration; fall back to last segment end time.
     if info and info.get("duration"):
@@ -191,14 +237,14 @@ async def _handle_youtube(video_url: str):
     if verdict.verdict == "reject":
         raise HTTPException(status_code=422, detail=f"Transcript rejected: {verdict.reason}")
 
-    audio_base = str(IMAGE_DIR / video_id)
-    audio_path = audio_base + ".mp3"
-    try:
-        extract_audio(video_url, audio_base)
-        logger.info(f"Audio extracted to: {audio_path}")
-    except Exception as e:
-        logger.error(f"Audio extraction failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Audio extraction failed: {e}")
+    if not audio_ready:
+        try:
+            extract_audio(video_url, audio_base)
+            audio_ready = True
+            logger.info(f"Audio extracted to: {audio_path}")
+        except Exception as e:
+            logger.error(f"Audio extraction failed: {e}")
+            raise HTTPException(status_code=500, detail=f"Audio extraction failed: {e}")
 
     return {
         "transcript": normalized,

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { UploadSimple, Warning, YoutubeLogo } from '@phosphor-icons/react'
 
-const YT_REGEX = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&?/]+)/
+const YT_REGEX = /(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([^&?/]+)/
 const MAX_FILE_BYTES = 25 * 1024 * 1024
 const ALLOWED_EXT = ['.mp3', '.mp4', '.mpeg', '.mpga', '.m4a', '.wav', '.webm']
 
@@ -58,7 +58,7 @@ export default function UrlInput({ onSubmit }) {
       <div style={styles.inner}>
         <h1 style={styles.logo}>Visualang</h1>
         <p style={styles.tagline}>
-          Paste a YouTube URL or upload audio to generate an illustrated language learning video.
+          Paste a YouTube video or Shorts URL, or upload audio to generate an illustrated language learning video.
         </p>
 
         <div style={styles.modeToggle}>
@@ -82,7 +82,7 @@ export default function UrlInput({ onSubmit }) {
           <input
             style={styles.input}
             type="text"
-            placeholder="https://www.youtube.com/watch?v=..."
+            placeholder="https://www.youtube.com/watch?v=... or /shorts/..."
             value={url}
             onChange={handleUrlChange}
             onKeyDown={e => e.key === 'Enter' && isValid && handleSubmit()}
