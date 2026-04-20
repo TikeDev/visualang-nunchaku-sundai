@@ -1,8 +1,11 @@
-# Visualang
+# VisuaLang
 
-Visualang is a language-learning video companion built with React and FastAPI. It takes a YouTube video or Shorts URL, or an uploaded audio file, extracts a transcript, turns key moments into storybook-style images, previews the sequence in the browser, and exports a downloadable video package.
+VisuaLang is a language-learning video companion built with React and FastAPI. It takes a YouTube video or Shorts URL, or an uploaded audio file, extracts a transcript, turns key moments into storybook-style images, previews the sequence in the browser, and exports a downloadable video package.
 
-## What Visualang Does Today
+> ⚠️ At the moment, YouTube video and Shorts links only work reliably in local development.
+On the deployed app, YouTube ingestion may fail because hosted environments like Render are often blocked by YouTube.
+
+## What VisuaLang Does Today
 
 - Accepts a YouTube video link, YouTube Shorts link, or local audio upload.
 - Fetches YouTube captions when available and falls back to transcribing extracted audio when they are not.
@@ -18,7 +21,7 @@ Visualang is a language-learning video companion built with React and FastAPI. I
 ```text
 frontend/   React 19 + Vite app
 backend/    FastAPI app, runtime agents, routers, export pipeline
-tests/      Visualang-focused tests
+tests/      VisuaLang-focused tests
 ```
 
 ## Local Development
@@ -154,7 +157,7 @@ If omitted, the frontend falls back to `http://localhost:8000`.
 
 ## Testing
 
-Run the local Visualang test suite:
+Run the local VisuaLang test suite:
 
 ```bash
 pytest tests/test_visualang_phase2.py -v
@@ -164,7 +167,7 @@ pytest tests/test_export.py -v
 
 Notes:
 
-- These tests cover the current Visualang app rather than the old fork extras.
+- These tests cover the current VisuaLang app rather than the old fork extras.
 - `tests/test_generate.py` may require a valid `NUNCHAKU_API_KEY` depending on the path being exercised.
 
 ## Related Documentation
