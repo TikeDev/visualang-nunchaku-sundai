@@ -45,8 +45,9 @@ class FakeCaptionTrack:
 
 
 class FakeYouTubeTranscriptApi:
-    def __init__(self, transcripts):
+    def __init__(self, transcripts, *, proxy_config=None):
         self._transcripts = transcripts
+        self.proxy_config = proxy_config
 
     def list(self, video_id):
         assert video_id == "abc123"
@@ -54,9 +55,32 @@ class FakeYouTubeTranscriptApi:
 
 
 class FailingYouTubeTranscriptApi:
+    def __init__(self, *, proxy_config=None):
+        self.proxy_config = proxy_config
+
     def list(self, video_id):
         assert video_id == "abc123"
         raise RuntimeError("captions unavailable")
+
+
+class FakeYoutubeDL:
+    last_opts = None
+
+    def __init__(self, opts):
+        FakeYoutubeDL.last_opts = opts
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def extract_info(self, video_url, download):
+        assert download is False
+        return {"title": "Breakfast Spanish", "duration": 42}
+
+    def download(self, urls):
+        assert urls == ["https://www.youtube.com/watch?v=abc123"]
 
 
 def test_extract_video_id_supports_watch_short_and_share_urls():
@@ -73,7 +97,7 @@ def test_transcript_youtube_unified_success(monkeypatch):
     monkeypatch.setattr(
         transcript,
         "YouTubeTranscriptApi",
-        lambda: FakeYouTubeTranscriptApi(
+        lambda **kwargs: FakeYouTubeTranscriptApi(
             [
                 FakeCaptionTrack(
                     language_code="es",
@@ -121,7 +145,7 @@ def test_transcript_youtube_shorts_success(monkeypatch):
     monkeypatch.setattr(
         transcript,
         "YouTubeTranscriptApi",
-        lambda: FakeYouTubeTranscriptApi(
+        lambda **kwargs: FakeYouTubeTranscriptApi(
             [
                 FakeCaptionTrack(
                     language_code="es",
@@ -193,6 +217,108 @@ def test_transcript_upload_unified_success(monkeypatch):
     assert body["audio_path"].endswith("_lesson.mp3")
     assert body["audio_url"].startswith("/media/audio/")
     assert body["audio_url"].endswith("_lesson.mp3")
+
+
+def test_build_youtube_transcript_api_uses_generic_proxy_config(monkeypatch):
+    captured = {}
+
+    class FakeGenericProxyConfig:
+        def __init__(self, http_url=None, https_url=None):
+            captured["http_url"] = http_url
+            captured["https_url"] = https_url
+
+    def fake_youtube_transcript_api(**kwargs):
+        captured["proxy_config"] = kwargs.get("proxy_config")
+        return "fake-client"
+
+    monkeypatch.setattr(transcript, "YOUTUBE_PROXY_ENABLED", True)
+    monkeypatch.setattr(transcript, "YOUTUBE_PROXY_HTTP_URL", "http://proxy.example:8080")
+    monkeypatch.setattr(transcript, "YOUTUBE_PROXY_HTTPS_URL", "https://proxy.example:8443")
+    monkeypatch.setattr(transcript, "GenericProxyConfig", FakeGenericProxyConfig)
+    monkeypatch.setattr(transcript, "YouTubeTranscriptApi", fake_youtube_transcript_api)
+
+    client = transcript.build_youtube_transcript_api()
+
+    assert client == "fake-client"
+    assert captured["http_url"] == "http://proxy.example:8080"
+    assert captured["https_url"] == "https://proxy.example:8443"
+    assert captured["proxy_config"] is not None
+
+
+def test_get_video_info_uses_proxy_for_yt_dlp(monkeypatch):
+    monkeypatch.setattr(transcript, "YOUTUBE_PROXY_ENABLED", True)
+    monkeypatch.setattr(transcript, "YOUTUBE_PROXY_HTTP_URL", "http://proxy.example:8080")
+    monkeypatch.setattr(transcript, "YOUTUBE_PROXY_HTTPS_URL", "https://proxy.example:8443")
+    monkeypatch.setattr(transcript.yt_dlp, "YoutubeDL", FakeYoutubeDL)
+
+    info = transcript.get_video_info("https://www.youtube.com/watch?v=abc123")
+
+    assert info == {"title": "Breakfast Spanish", "duration": 42}
+    assert FakeYoutubeDL.last_opts["proxy"] == "https://proxy.example:8443"
+    assert FakeYoutubeDL.last_opts["skip_download"] is True
+
+
+def test_extract_audio_uses_proxy_for_yt_dlp(monkeypatch):
+    monkeypatch.setattr(transcript, "YOUTUBE_PROXY_ENABLED", True)
+    monkeypatch.setattr(transcript, "YOUTUBE_PROXY_HTTP_URL", "http://proxy.example:8080")
+    monkeypatch.setattr(transcript, "YOUTUBE_PROXY_HTTPS_URL", None)
+    monkeypatch.setattr(transcript.yt_dlp, "YoutubeDL", FakeYoutubeDL)
+
+    transcript.extract_audio("https://www.youtube.com/watch?v=abc123", "/tmp/visualang_images/abc123")
+
+    assert FakeYoutubeDL.last_opts["proxy"] == "http://proxy.example:8080"
+    assert FakeYoutubeDL.last_opts["outtmpl"] == "/tmp/visualang_images/abc123"
+    assert FakeYoutubeDL.last_opts["format"] == "bestaudio/best"
+
+
+def test_transcript_youtube_falls_back_to_whisper_with_proxy_enabled(monkeypatch):
+    monkeypatch.setattr(transcript, "YOUTUBE_PROXY_ENABLED", True)
+    monkeypatch.setattr(transcript, "YOUTUBE_PROXY_HTTP_URL", "http://proxy.example:8080")
+    monkeypatch.setattr(transcript, "YOUTUBE_PROXY_HTTPS_URL", None)
+    monkeypatch.setattr(transcript, "YouTubeTranscriptApi", lambda **kwargs: FailingYouTubeTranscriptApi(**kwargs))
+    monkeypatch.setattr(transcript, "get_video_info", lambda url: {"title": "Fallback Lesson", "duration": 64})
+    monkeypatch.setattr(transcript, "extract_audio", lambda video_url, output_base: None)
+    monkeypatch.setattr(
+        transcript,
+        "transcribe_audio",
+        lambda audio_path: [
+            {"text": "hola", "start": 0.0, "duration": 1.0},
+            {"text": "otra vez", "start": 1.0, "duration": 1.5},
+        ],
+    )
+
+    async def fake_gate_run(normalized, *, title, duration):
+        assert normalized[0]["text"] == "hola"
+        assert title == "Fallback Lesson"
+        assert duration == 64
+        return _gate_result()
+
+    monkeypatch.setattr(transcript.transcript_gate, "run", fake_gate_run)
+
+    response = client.post("/transcript", json={"video_url": "https://www.youtube.com/watch?v=abc123"})
+
+    assert response.status_code == 200
+    assert response.json()["title"] == "Fallback Lesson"
+    assert response.json()["audio_path"] == "/tmp/visualang_images/abc123.mp3"
+    assert response.json()["transcript"] == [
+        {"text": "hola", "start": 0.0, "duration": 1.0},
+        {"text": "otra vez", "start": 1.0, "duration": 1.5},
+    ]
+
+
+def test_transcript_youtube_returns_500_when_audio_fallback_fails(monkeypatch):
+    monkeypatch.setattr(transcript, "YouTubeTranscriptApi", lambda **kwargs: FailingYouTubeTranscriptApi(**kwargs))
+    monkeypatch.setattr(transcript, "get_video_info", lambda url: {"title": "Fallback Lesson", "duration": 64})
+
+    def fail_extract_audio(video_url, output_base):
+        raise RuntimeError("yt-dlp blocked")
+
+    monkeypatch.setattr(transcript, "extract_audio", fail_extract_audio)
+
+    response = client.post("/transcript", json={"video_url": "https://www.youtube.com/watch?v=abc123"})
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Failed to fetch transcript. Audio extraction fallback failed."
 
 
 def test_transcribe_audio_uses_whisper_verbose_json(monkeypatch):

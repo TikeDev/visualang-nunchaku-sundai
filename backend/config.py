@@ -38,6 +38,14 @@ def _get_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _get_optional_str(name: str) -> str | None:
+    raw = os.getenv(name)
+    if raw is None:
+        return None
+    value = raw.strip()
+    return value or None
+
+
 def _get_csv(name: str, default: list[str]) -> list[str]:
     raw = os.getenv(name)
     if raw is None:
@@ -53,6 +61,12 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 NUNCHAKU_API_KEY = os.getenv("NUNCHAKU_API_KEY")
 CORS_ALLOWED_ORIGINS = _get_csv("CORS_ALLOWED_ORIGINS", DEFAULT_CORS_ALLOWED_ORIGINS)
+YOUTUBE_PROXY_HTTP_URL = _get_optional_str("YOUTUBE_PROXY_HTTP_URL")
+YOUTUBE_PROXY_HTTPS_URL = _get_optional_str("YOUTUBE_PROXY_HTTPS_URL")
+YOUTUBE_PROXY_ENABLED = _get_bool(
+    "YOUTUBE_PROXY_ENABLED",
+    bool(YOUTUBE_PROXY_HTTP_URL or YOUTUBE_PROXY_HTTPS_URL),
+)
 
 # Nunchaku settings
 NUNCHAKU_MODEL = "nunchaku-flux.2-klein-9b"

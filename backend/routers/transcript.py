@@ -9,9 +9,15 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api.proxies import GenericProxyConfig
 
 from agents import transcript_gate
-from config import OPENAI_API_KEY
+from config import (
+    OPENAI_API_KEY,
+    YOUTUBE_PROXY_ENABLED,
+    YOUTUBE_PROXY_HTTP_URL,
+    YOUTUBE_PROXY_HTTPS_URL,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -60,20 +66,65 @@ def normalize_transcript(segments: list, source: str) -> list:
 
 # --- Helpers ---
 
+def youtube_proxy_enabled() -> bool:
+    return YOUTUBE_PROXY_ENABLED and bool(YOUTUBE_PROXY_HTTP_URL or YOUTUBE_PROXY_HTTPS_URL)
+
+
+def get_yt_dlp_proxy_url() -> str | None:
+    if not youtube_proxy_enabled():
+        return None
+    return YOUTUBE_PROXY_HTTPS_URL or YOUTUBE_PROXY_HTTP_URL
+
+
+def get_proxy_connection_label() -> str:
+    if not youtube_proxy_enabled():
+        return "direct connection"
+    proxy_url = get_yt_dlp_proxy_url()
+    parsed = urlparse(proxy_url or "")
+    host = parsed.hostname or "configured proxy"
+    port = f":{parsed.port}" if parsed.port else ""
+    scheme = parsed.scheme or "http"
+    return f"proxy connection ({scheme}://{host}{port})"
+
+
+def build_youtube_transcript_api():
+    if not youtube_proxy_enabled():
+        return YouTubeTranscriptApi()
+    return YouTubeTranscriptApi(
+        proxy_config=GenericProxyConfig(
+            http_url=YOUTUBE_PROXY_HTTP_URL,
+            https_url=YOUTUBE_PROXY_HTTPS_URL,
+        )
+    )
+
+
+def build_yt_dlp_options(*, skip_download: bool = False, output_base: str | None = None) -> dict:
+    ydl_opts = {"quiet": True}
+    if skip_download:
+        ydl_opts["skip_download"] = True
+    if output_base is not None:
+        ydl_opts.update(
+            {
+                "format": "bestaudio/best",
+                "outtmpl": output_base,
+                "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}],
+            }
+        )
+    proxy_url = get_yt_dlp_proxy_url()
+    if proxy_url:
+        ydl_opts["proxy"] = proxy_url
+    return ydl_opts
+
+
 def get_video_info(video_url: str) -> dict:
-    ydl_opts = {"quiet": True, "skip_download": True}
+    ydl_opts = build_yt_dlp_options(skip_download=True)
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(video_url, download=False)
         return {"title": info.get("title", "Untitled"), "duration": info.get("duration", 0)}
 
 
 def extract_audio(video_url: str, output_base: str):
-    ydl_opts = {
-        "format": "bestaudio/best",
-        "outtmpl": output_base,
-        "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}],
-        "quiet": True,
-    }
+    ydl_opts = build_yt_dlp_options(output_base=output_base)
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([video_url])
 
@@ -137,7 +188,7 @@ def audio_media_type(path: Path) -> str:
 
 
 def select_youtube_transcript(video_id: str):
-    ytt_api = YouTubeTranscriptApi()
+    ytt_api = build_youtube_transcript_api()
     transcript_list = ytt_api.list(video_id)
     transcripts = list(transcript_list)
     if not transcripts:
@@ -171,6 +222,7 @@ async def _handle_youtube(video_url: str):
         logger.info(f"Extracted video ID: {video_id}")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    logger.info("YouTube ingestion using %s", get_proxy_connection_label())
 
     info: dict | None = None
     title = "Untitled"
@@ -179,7 +231,7 @@ async def _handle_youtube(video_url: str):
         title = info["title"]
         logger.info(f"Video title: {title}")
     except Exception as e:
-        logger.warning(f"Could not fetch video info: {e}")
+        logger.warning("Could not fetch video info over %s: %s", get_proxy_connection_label(), e)
 
     audio_base = str(IMAGE_DIR / video_id)
     audio_path = build_youtube_audio_path(video_id)
@@ -197,8 +249,9 @@ async def _handle_youtube(video_url: str):
         )
     except Exception as e:
         logger.warning(
-            "Transcript fetch failed for %s; falling back to Whisper transcription: %s",
+            "Transcript fetch failed for %s over %s; falling back to Whisper transcription: %s",
             video_id,
+            get_proxy_connection_label(),
             e,
         )
         try:
@@ -206,23 +259,24 @@ async def _handle_youtube(video_url: str):
             audio_ready = True
             logger.info(f"Audio extracted to: {audio_path}")
         except Exception as audio_error:
-            logger.error(f"Audio extraction failed during transcript fallback: {audio_error}")
+            logger.error(
+                "Audio extraction failed during transcript fallback over %s: %s",
+                get_proxy_connection_label(),
+                audio_error,
+            )
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to fetch transcript: {e}. Audio extraction failed: {audio_error}",
+                detail="Failed to fetch transcript. Audio extraction fallback failed.",
             )
 
         try:
             normalized = transcribe_audio(audio_path)
             logger.info("Transcribed fallback audio: %s segments", len(normalized))
         except Exception as transcription_error:
-            logger.error(f"Whisper fallback failed: {transcription_error}")
+            logger.error("Whisper fallback failed for %s: %s", video_id, transcription_error)
             raise HTTPException(
                 status_code=500,
-                detail=(
-                    f"Failed to fetch transcript: {e}. "
-                    f"Transcription fallback failed: {transcription_error}"
-                ),
+                detail="Failed to fetch transcript. Transcription fallback failed.",
             )
 
     # Prefer yt-dlp duration; fall back to last segment end time.
@@ -243,8 +297,8 @@ async def _handle_youtube(video_url: str):
             audio_ready = True
             logger.info(f"Audio extracted to: {audio_path}")
         except Exception as e:
-            logger.error(f"Audio extraction failed: {e}")
-            raise HTTPException(status_code=500, detail=f"Audio extraction failed: {e}")
+            logger.error("Audio extraction failed over %s: %s", get_proxy_connection_label(), e)
+            raise HTTPException(status_code=500, detail="Audio extraction failed.")
 
     return {
         "transcript": normalized,

@@ -99,6 +99,9 @@ ANTHROPIC_API_KEY=your_anthropic_key
 OPENAI_API_KEY=your_openai_key
 NUNCHAKU_API_KEY=sk-nunchaku-...
 CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+YOUTUBE_PROXY_ENABLED=false
+YOUTUBE_PROXY_HTTP_URL=
+YOUTUBE_PROXY_HTTPS_URL=
 NUNCHAKU_MIN_INTERVAL_SECONDS=2.0
 NUNCHAKU_MAX_429_RETRIES=4
 NUNCHAKU_BACKOFF_BASE_SECONDS=3.0
@@ -108,6 +111,9 @@ NUNCHAKU_ENABLE_REWRITE_RECOVERY=false
 Notes:
 
 - `CORS_ALLOWED_ORIGINS` is a comma-separated list.
+- Hosted YouTube ingestion on Render is likely to fail without a rotating proxy because YouTube blocks many cloud-provider IPs.
+- Set `YOUTUBE_PROXY_ENABLED=true` and configure `YOUTUBE_PROXY_HTTP_URL` and/or `YOUTUBE_PROXY_HTTPS_URL` when you want hosted YouTube transcript fetches and `yt-dlp` requests to run through a proxy.
+- If only one proxy URL is provided, the backend reuses it for both transcript fetches and `yt-dlp` requests.
 - The Nunchaku retry and throttle settings control spacing and backoff around image generation requests.
 - Generated images and uploaded audio are stored under `/tmp/visualang_images`.
 
