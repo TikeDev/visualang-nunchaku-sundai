@@ -16,6 +16,21 @@ On the deployed app, YouTube ingestion may fail because hosted environments like
 - Starts an FFmpeg export job in the background and exposes video, transcript, and image downloads.
 - Supports seeded demo fixtures and lightweight in-memory metrics for demos.
 
+## Visitor Flow
+
+```mermaid
+flowchart LR
+A["YouTube URL or <br>Audio Upload"] --> B["`Transcript + Audio Extraction
+Captions unavailable?<br> -> transcribe audio`"]
+B --> C["Quality Gate"]
+C --> D["Concept Selection"]
+D --> E["`Generate Illustrations
+Text detected -> rewrite once and retry`"]
+E --> F["Preview +<br> Background Export"]
+F --> G["Download MP4 / Transcript / Images"]
+```
+
+
 ## Repo Structure
 
 ```text
