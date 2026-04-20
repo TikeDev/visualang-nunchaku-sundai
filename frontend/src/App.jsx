@@ -1,5 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import { CircleNotch, Moon, Sun } from '@phosphor-icons/react'
+import {
+  CheckCircle,
+  CircleNotch,
+  FileText,
+  ImagesSquare,
+  Moon,
+  Sun,
+  VideoCamera,
+  XCircle,
+} from '@phosphor-icons/react'
 import { API_URL } from './config.js'
 import LoadingScreen from './components/LoadingScreen.jsx'
 import Player from './components/Player.jsx'
@@ -481,9 +490,7 @@ export default function App() {
       return exportErrorMessage || 'Export failed. Retry export from the preview.'
     }
     if (appState === STATES.DONE) {
-      return hasDownloads
-        ? 'Export complete. Download the video, transcript, or images below.'
-        : 'Export complete.'
+      return hasDownloads ? 'Export complete. Your files are ready below.' : 'Export complete.'
     }
     return ''
   })()
@@ -577,7 +584,15 @@ export default function App() {
                 )}
                 {appState === STATES.EXPORT_FAILED && (
                   <div className="notice notice--warning">
-                    <span>{exportErrorMessage || 'Video export failed from the current preview.'}</span>
+                    <span className="stage-view__status-indicator">
+                      <XCircle
+                        size={20}
+                        weight="fill"
+                        aria-hidden="true"
+                        className="stage-view__status-icon"
+                      />
+                      <span>{exportErrorMessage || 'Video export failed from the current preview.'}</span>
+                    </span>
                     <button
                       type="button"
                       className="button button--secondary"
@@ -589,7 +604,15 @@ export default function App() {
                 )}
                 {appState === STATES.DONE && (
                   <div className="notice notice--success">
-                    Export complete. Download the video, transcript, or images below.
+                    <span className="stage-view__status-indicator">
+                      <CheckCircle
+                        size={20}
+                        weight="fill"
+                        aria-hidden="true"
+                        className="stage-view__status-icon"
+                      />
+                      <span>Export complete. Your files are ready below.</span>
+                    </span>
                   </div>
                 )}
                 {gateWarning && (
@@ -612,28 +635,34 @@ export default function App() {
             </div>
 
             {hasDownloads && (
-              <div className="stage-actions" aria-label="Export downloads">
-                <a
-                  href={`${API_URL}/export/${exportJobId}/video`}
-                  download="visualang.mp4"
-                  className="button button--primary"
-                >
-                  Download Video
-                </a>
-                <a
-                  href={`${API_URL}/export/${exportJobId}/transcript`}
-                  download="transcript.txt"
-                  className="button button--secondary"
-                >
-                  Transcript
-                </a>
-                <a
-                  href={`${API_URL}/export/${exportJobId}/images`}
-                  download="visualang_images.zip"
-                  className="button button--secondary"
-                >
-                  Images
-                </a>
+              <div className="stage-actions-section">
+                <h2 className="stage-actions__label">Download Files</h2>
+                <div className="stage-actions" aria-label="Export downloads">
+                  <a
+                    href={`${API_URL}/export/${exportJobId}/video`}
+                    download="visualang.mp4"
+                    className="button button--primary"
+                  >
+                    <VideoCamera size={20} weight="fill" aria-hidden="true" />
+                    <span>Video</span>
+                  </a>
+                  <a
+                    href={`${API_URL}/export/${exportJobId}/transcript`}
+                    download="transcript.txt"
+                    className="button button--secondary"
+                  >
+                    <FileText size={20} weight="fill" aria-hidden="true" />
+                    <span>Transcript</span>
+                  </a>
+                  <a
+                    href={`${API_URL}/export/${exportJobId}/images`}
+                    download="visualang_images.zip"
+                    className="button button--secondary"
+                  >
+                    <ImagesSquare size={20} weight="fill" aria-hidden="true" />
+                    <span>Images</span>
+                  </a>
+                </div>
               </div>
             )}
           </section>
