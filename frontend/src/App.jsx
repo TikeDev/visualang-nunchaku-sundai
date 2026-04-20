@@ -1,11 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import { CircleNotch } from '@phosphor-icons/react'
+import { CircleNotch, Moon, Sun } from '@phosphor-icons/react'
 import { API_URL } from './config.js'
 import LoadingScreen from './components/LoadingScreen.jsx'
 import Player from './components/Player.jsx'
 import UrlInput from './components/UrlInput.jsx'
 
 const LOGO_SRC = new URL('../../logos/Visualang-logo.png', import.meta.url).href
+const THEME_STORAGE_KEY = 'visualang-theme'
+const THEMES = {
+  LIGHT: 'light',
+  DARK: 'dark',
+}
 
 const STATES = {
   IDLE: 'idle',
@@ -109,10 +114,54 @@ function transition(setState, state) {
   setState(state)
 }
 
+const LOADING_STATES = [
+  STATES.LOADING_TRANSCRIPT,
+  STATES.LOADING_CONCEPTS,
+  STATES.GENERATING_IMAGES,
+]
+
+const PREVIEW_STATES = [STATES.PREVIEW_READY, STATES.EXPORTING, STATES.DONE]
+
+function focusElement(element) {
+  if (!element) return
+  requestAnimationFrame(() => {
+    element.focus()
+  })
+}
+
+function getStoredTheme() {
+  try {
+    const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
+    if (storedTheme === THEMES.DARK || storedTheme === THEMES.LIGHT) {
+      return storedTheme
+    }
+  } catch {
+    // Ignore storage access failures and fall back to system preference.
+  }
+  return null
+}
+
+function getPreferredTheme() {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? THEMES.DARK : THEMES.LIGHT
+}
+
+function getInitialTheme() {
+  const rootTheme = document.documentElement.dataset.theme
+  if (rootTheme === THEMES.DARK || rootTheme === THEMES.LIGHT) {
+    return rootTheme
+  }
+  return getStoredTheme() ?? getPreferredTheme()
+}
+
 export default function App() {
   const isDemoMode = new URLSearchParams(window.location.search).has('demo')
   const [appState, setAppState] = useState(isDemoMode ? STATES.PREVIEW_READY : STATES.IDLE)
+  const [theme, setTheme] = useState(getInitialTheme)
   const exportPollRef = useRef(null)
+  const loadingHeadingRef = useRef(null)
+  const previewHeadingRef = useRef(null)
+  const errorAlertRef = useRef(null)
+  const previousStateRef = useRef(appState)
 
   const [title, setTitle] = useState('')
   const [images, setImages] = useState([])
@@ -132,6 +181,38 @@ export default function App() {
 
   useEffect(() => clearExportPoll, [])
 
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    document.documentElement.style.colorScheme = theme
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme)
+    } catch {
+      // Ignore storage access failures and keep the in-memory theme.
+    }
+  }, [theme])
+
+  useEffect(() => {
+    const previousState = previousStateRef.current
+    const wasLoading = LOADING_STATES.includes(previousState)
+    const isLoading = LOADING_STATES.includes(appState)
+    const wasPreview = PREVIEW_STATES.includes(previousState)
+    const isPreview = PREVIEW_STATES.includes(appState)
+
+    if (isLoading && !wasLoading) {
+      focusElement(loadingHeadingRef.current)
+    } else if (isPreview && !wasPreview) {
+      focusElement(previewHeadingRef.current)
+    }
+
+    previousStateRef.current = appState
+  }, [appState])
+
+  useEffect(() => {
+    if (error) {
+      focusElement(errorAlertRef.current)
+    }
+  }, [error])
+
   function resetToIdle() {
     clearExportPoll()
     setAppState(STATES.IDLE)
@@ -144,6 +225,10 @@ export default function App() {
     setGenProgress({ index: 0, total: 0, concept: '' })
     setRetryMsg('')
     console.log('[Visualang] State: idle (reset)')
+  }
+
+  function toggleTheme() {
+    setTheme(currentTheme => (currentTheme === THEMES.DARK ? THEMES.LIGHT : THEMES.DARK))
   }
 
   async function handleSubmit(input) {
@@ -346,6 +431,33 @@ export default function App() {
   ].includes(appState)
   const hasDownloads = appState === STATES.DONE && exportJobId
   const previewTitle = title || 'Your Visualang preview'
+  const liveMessage = (() => {
+    if (appState === STATES.LOADING_TRANSCRIPT) {
+      return retryMsg || 'Fetching transcript.'
+    }
+    if (appState === STATES.LOADING_CONCEPTS) {
+      return retryMsg || 'Extracting concepts.'
+    }
+    if (appState === STATES.GENERATING_IMAGES) {
+      if (retryMsg) return retryMsg
+      if (genProgress.total > 0) {
+        return `Generating image ${genProgress.index} of ${genProgress.total}: ${genProgress.concept}.`
+      }
+      return 'Generating images.'
+    }
+    if (appState === STATES.PREVIEW_READY) {
+      return 'Preview ready.'
+    }
+    if (appState === STATES.EXPORTING) {
+      return 'Rendering your video in the background.'
+    }
+    if (appState === STATES.DONE) {
+      return hasDownloads
+        ? 'Export complete. Download the video, transcript, or images below.'
+        : 'Export complete.'
+    }
+    return ''
+  })()
 
   return (
     <div className="app-shell">
@@ -354,6 +466,18 @@ export default function App() {
           <img src={LOGO_SRC} alt="Visualang" className="app-brand__image" />
         </div>
         <div className="app-header__actions">
+          <button
+            type="button"
+            className="button button--secondary theme-toggle"
+            onClick={toggleTheme}
+            aria-pressed={theme === THEMES.DARK}
+            aria-label={theme === THEMES.DARK ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={theme === THEMES.DARK ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            <span className="theme-toggle__icon" aria-hidden="true">
+              {theme === THEMES.DARK ? <Sun size={24} weight="fill" /> : <Moon size={24} weight="fill" />}
+            </span>
+          </button>
           {isPreviewState && (
             <button type="button" className="button button--secondary" onClick={resetToIdle}>
               Create Another Video
@@ -363,8 +487,12 @@ export default function App() {
       </header>
 
       <main className="app-main">
+        <div className="sr-only" aria-live="polite" aria-atomic="true">
+          {liveMessage}
+        </div>
+
         {error && (
-          <div className="notice notice--error" role="alert">
+          <div className="notice notice--error" role="alert" ref={errorAlertRef} tabIndex="-1">
             <span>{error}</span>
             <button type="button" className="notice__dismiss" onClick={() => setError('')}>
               Dismiss
@@ -375,7 +503,12 @@ export default function App() {
         {appState === STATES.IDLE && <UrlInput onSubmit={handleSubmit} />}
 
         {isLoading && (
-          <LoadingScreen steps={buildSteps()} title={title || retryMsg} warning={gateWarning} />
+          <LoadingScreen
+            steps={buildSteps()}
+            title={title || retryMsg}
+            warning={gateWarning}
+            headingRef={loadingHeadingRef}
+          />
         )}
 
         {isPreviewState && (
@@ -383,7 +516,7 @@ export default function App() {
             <div className="stage-view__intro">
               <div className="stage-view__copy">
                 <p className="eyebrow">Story Preview</p>
-                <h1 id="preview-title" className="stage-view__title">
+                <h1 id="preview-title" className="stage-view__title" ref={previewHeadingRef} tabIndex="-1">
                   {previewTitle}
                 </h1>
                 <p className="stage-view__summary">
@@ -393,12 +526,12 @@ export default function App() {
               </div>
               <div className="stage-view__status">
                 {appState === STATES.PREVIEW_READY && (
-                  <div className="notice notice--info" role="status">
+                  <div className="notice notice--info">
                     Preview is ready. Export will retry if the background render was interrupted.
                   </div>
                 )}
                 {appState === STATES.EXPORTING && (
-                  <div className="notice notice--info" role="status" aria-live="polite">
+                  <div className="notice notice--info">
                     <span className="stage-view__status-indicator">
                       <CircleNotch
                         size={20}
@@ -414,14 +547,12 @@ export default function App() {
                   </div>
                 )}
                 {appState === STATES.DONE && (
-                  <div className="notice notice--success" role="status">
+                  <div className="notice notice--success">
                     Export complete. Download the video, transcript, or images below.
                   </div>
                 )}
                 {gateWarning && (
-                  <div className="notice notice--warning" role="status">
-                    {gateWarning}
-                  </div>
+                  <div className="notice notice--warning">{gateWarning}</div>
                 )}
               </div>
             </div>

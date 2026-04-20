@@ -205,7 +205,7 @@ export default function Player({ images, audioSrc, title }) {
           <div className="player-card__controls-top">
             <div className="player-card__controls-main">
               {!isReady ? (
-                <div className="player-card__loading" role="status" aria-live="polite">
+                <div className="player-card__loading">
                   <CircleNotch size={22} style={{ animation: 'spin 1s linear infinite' }} />
                   <span>Loading images...</span>
                 </div>

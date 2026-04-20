@@ -16,12 +16,12 @@ function StepIcon({ state }) {
   return <Clock size={24} color="var(--color-warm-muted)" />
 }
 
-export default function LoadingScreen({ steps, title, warning }) {
+export default function LoadingScreen({ steps, title, warning, headingRef }) {
   return (
     <section className="panel panel--loading" aria-labelledby="loading-title">
       <div className="panel__copy">
         <p className="eyebrow">Processing Workflow</p>
-        <h1 id="loading-title" className="panel__title">
+        <h1 id="loading-title" className="panel__title" ref={headingRef} tabIndex="-1">
           Building your illustrated sequence.
         </h1>
         <p className="panel__description">
@@ -37,7 +37,7 @@ export default function LoadingScreen({ steps, title, warning }) {
         </div>
       )}
 
-      <div className="loading-screen__card" role="status" aria-live="polite">
+      <div className="loading-screen__card">
         <ol className="loading-screen__list">
           {steps.map(step => (
             <li key={step.label} className={`loading-screen__step is-${step.state}`}>
@@ -53,9 +53,7 @@ export default function LoadingScreen({ steps, title, warning }) {
         </ol>
 
         {warning && (
-          <div className="notice notice--warning loading-screen__warning" role="status">
-            {warning}
-          </div>
+          <div className="notice notice--warning loading-screen__warning">{warning}</div>
         )}
       </div>
     </section>

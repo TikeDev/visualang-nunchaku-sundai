@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { UploadSimple, Warning, YoutubeLogo } from '@phosphor-icons/react'
 
 const YT_REGEX = /(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([^&?/]+)/
@@ -10,6 +10,8 @@ export default function UrlInput({ onSubmit }) {
   const [url, setUrl] = useState('')
   const [file, setFile] = useState(null)
   const [error, setError] = useState('')
+  const urlInputRef = useRef(null)
+  const fileInputRef = useRef(null)
 
   function handleUrlChange(event) {
     setUrl(event.target.value)
@@ -24,11 +26,13 @@ export default function UrlInput({ onSubmit }) {
     if (!ALLOWED_EXT.includes(ext)) {
       setError(`Unsupported file type. Allowed: ${ALLOWED_EXT.join(', ')}`)
       setFile(null)
+      fileInputRef.current?.focus()
       return
     }
     if (selectedFile.size > MAX_FILE_BYTES) {
       setError('File exceeds 25 MB limit.')
       setFile(null)
+      fileInputRef.current?.focus()
       return
     }
 
@@ -41,6 +45,7 @@ export default function UrlInput({ onSubmit }) {
     if (mode === 'youtube') {
       if (!YT_REGEX.test(url)) {
         setError('Please enter a valid YouTube URL.')
+        urlInputRef.current?.focus()
         return
       }
       onSubmit({ type: 'youtube', url })
@@ -49,6 +54,7 @@ export default function UrlInput({ onSubmit }) {
 
     if (!file) {
       setError('Please select an audio file.')
+      fileInputRef.current?.focus()
       return
     }
 
@@ -111,6 +117,7 @@ export default function UrlInput({ onSubmit }) {
             </label>
             <input
               id="youtube-url"
+              ref={urlInputRef}
               className="text-input"
               type="url"
               inputMode="url"
@@ -118,6 +125,7 @@ export default function UrlInput({ onSubmit }) {
               value={url}
               onChange={handleUrlChange}
               aria-describedby={describedBy}
+              aria-invalid={error ? 'true' : undefined}
             />
             <p id={helpId} className="field-help">
               Paste the full link to a YouTube video or Shorts clip.
@@ -128,17 +136,20 @@ export default function UrlInput({ onSubmit }) {
             <span className="field-label" id="audio-upload-label">
               Audio upload
             </span>
-            <label className="file-picker" htmlFor="audio-file" aria-describedby={describedBy}>
+            <label className="file-picker" htmlFor="audio-file">
               <UploadSimple size={22} />
               <span>{file ? file.name : 'Choose an audio file to upload'}</span>
             </label>
             <input
               id="audio-file"
+              ref={fileInputRef}
               className="sr-only"
               type="file"
               accept={ALLOWED_EXT.join(',')}
               onChange={handleFileChange}
               aria-labelledby="audio-upload-label"
+              aria-describedby={describedBy}
+              aria-invalid={error ? 'true' : undefined}
             />
             <p id={helpId} className="field-help">
               Accepted formats: {ALLOWED_EXT.join(', ')}. Maximum file size: 25 MB.
