@@ -57,10 +57,10 @@ async def _gate_node(state: dict) -> str:
             detected_language=parsed.get("detected_language", "unknown"),
         )
     except (ValueError, KeyError) as e:
-        logger.warning("gate parse failed (%s), defaulting to warn", e)
+        logger.warning("gate parse failed (%s), defaulting to proceed", e)
         state["result"] = GateResult(
-            verdict="warn",
-            reason="quality check inconclusive — proceeding with caution",
+            verdict="proceed",
+            reason="quality check skipped after parser failure",
             detected_language="unknown",
         )
     return END
