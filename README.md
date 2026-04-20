@@ -20,14 +20,22 @@ On the deployed app, YouTube ingestion may fail because hosted environments like
 
 ```mermaid
 flowchart LR
-A["YouTube URL or <br>Audio Upload"] --> B["`Transcript + Audio Extraction
-Captions unavailable?<br> -> transcribe audio`"]
-B --> C["Quality Gate"]
-C --> D["Concept Selection"]
-D --> E["`Generate Illustrations
-Text detected -> rewrite once and retry`"]
-E --> F["Preview +<br> Background Export"]
-F --> G["Download MP4 / Transcript / Images"]
+A["`YouTube URL or
+Audio Upload`"] --> B["`Transcript + Audio
+Extraction
+No captions? ->
+transcribe audio`"] --> C["`Quality Gate`"] --> D["`Concept Selection`"]
+```
+
+Approved concepts then move into generation, preview, and export:
+
+```mermaid
+flowchart LR
+E["`Generate Illustrations
+Text detected ->
+retry once`"] --> F["`Preview +
+Background Export`"] --> G["`Download MP4 /
+Transcript / Images`"]
 ```
 
 
