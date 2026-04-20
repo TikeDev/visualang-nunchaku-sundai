@@ -1,4 +1,6 @@
 import os
+import shutil
+import subprocess
 import sys
 import zipfile
 from pathlib import Path
@@ -80,9 +82,76 @@ def test_build_ffmpeg_args_contains_non_empty_filter_graph(tmp_path):
         assert filter_graph
         assert "zoompan" in filter_graph
         assert "xfade=transition=fade" in filter_graph
+        assert filter_graph.count("settb=AVTB") == 2
+        assert filter_graph.count(f"setpts=N/({export.EXPORT_FPS}*TB)") == 2
         assert args[args.index("-map") + 1] == "[video]"
     finally:
         _cleanup_paths(image_one, image_two)
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is required")
+def test_build_ffmpeg_args_produces_non_empty_video(tmp_path):
+    image_one = export.IMAGE_DIR / "smoke-red.jpg"
+    image_two = export.IMAGE_DIR / "smoke-blue.jpg"
+    audio_path = export.IMAGE_DIR / "smoke-tone.mp3"
+    output_path = tmp_path / "smoke-export.mp4"
+
+    fixture_commands = [
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:s=1024x1024:d=1",
+            "-frames:v",
+            "1",
+            str(image_one),
+        ],
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=blue:s=1024x1024:d=1",
+            "-frames:v",
+            "1",
+            str(image_two),
+        ],
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=2.2",
+            "-c:a",
+            "mp3",
+            str(audio_path),
+        ],
+    ]
+
+    try:
+        for command in fixture_commands:
+            subprocess.run(command, check=True, capture_output=True, text=True)
+
+        args = export.build_ffmpeg_args(
+            str(audio_path),
+            [
+                {"image_url": f"/images/{image_one.name}", "duration_seconds": 1.2},
+                {"image_url": f"/images/{image_two.name}", "duration_seconds": 1.2},
+            ],
+            str(output_path),
+        )
+
+        result = subprocess.run(args, check=False, capture_output=True, text=True)
+
+        assert result.returncode == 0, result.stderr
+        assert output_path.exists()
+        assert output_path.stat().st_size > 0
+    finally:
+        _cleanup_paths(image_one, image_two, audio_path, output_path)
 
 
 def test_start_export_route_accepts_multiple_images_and_writes_zip(monkeypatch):

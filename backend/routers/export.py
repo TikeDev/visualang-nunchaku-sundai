@@ -163,7 +163,10 @@ def build_scene_filter(
         f"zoompan=z='{zoom_expr}':x='{x_expr}':y='{y_expr}':"
         f"d={frames}:s={EXPORT_WIDTH}x{EXPORT_HEIGHT}:fps={fps},"
         f"trim=duration={format_seconds(duration_seconds)},"
-        f"setpts=PTS-STARTPTS,setsar=1,format=yuv420p"
+        f"fps={fps},"
+        f"settb=AVTB,"
+        f"setpts=N/({fps}*TB),"
+        f"setsar=1,format=yuv420p"
         f"[v{scene_index}]"
     )
 

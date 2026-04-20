@@ -19,6 +19,7 @@ const STATES = {
   GENERATING_IMAGES: 'generating_images',
   PREVIEW_READY: 'preview_ready',
   EXPORTING: 'exporting',
+  EXPORT_FAILED: 'export_failed',
   DONE: 'done',
 }
 
@@ -109,6 +110,24 @@ function normalizeImages(images) {
   }))
 }
 
+function buildExportPayload(concepts, transcriptData, generatedImages) {
+  const exportImages = concepts.map((concept, index) => ({
+    timestamp_seconds: concept.timestamp_seconds,
+    image_url: generatedImages[index]?.image_url ?? '',
+    duration_seconds:
+      index < concepts.length - 1
+        ? concepts[index + 1].timestamp_seconds - concept.timestamp_seconds
+        : 30,
+    concept: concept.concept,
+  }))
+
+  return {
+    audio_path: transcriptData.audio_path,
+    images: exportImages,
+    transcript: transcriptData.transcript,
+  }
+}
+
 function transition(setState, state) {
   console.log(`[Visualang] State: ${state}`)
   setState(state)
@@ -120,7 +139,7 @@ const LOADING_STATES = [
   STATES.GENERATING_IMAGES,
 ]
 
-const PREVIEW_STATES = [STATES.PREVIEW_READY, STATES.EXPORTING, STATES.DONE]
+const PREVIEW_STATES = [STATES.PREVIEW_READY, STATES.EXPORTING, STATES.EXPORT_FAILED, STATES.DONE]
 
 function focusElement(element) {
   if (!element) return
@@ -167,6 +186,8 @@ export default function App() {
   const [images, setImages] = useState([])
   const [audioSrc, setAudioSrc] = useState(null)
   const [exportJobId, setExportJobId] = useState(null)
+  const [exportPayload, setExportPayload] = useState(null)
+  const [exportErrorMessage, setExportErrorMessage] = useState('')
   const [error, setError] = useState('')
   const [gateWarning, setGateWarning] = useState('')
   const [genProgress, setGenProgress] = useState({ index: 0, total: 0, concept: '' })
@@ -220,6 +241,8 @@ export default function App() {
     setImages([])
     setAudioSrc(null)
     setExportJobId(null)
+    setExportPayload(null)
+    setExportErrorMessage('')
     setError('')
     setGateWarning('')
     setGenProgress({ index: 0, total: 0, concept: '' })
@@ -235,6 +258,9 @@ export default function App() {
     setError('')
     setGateWarning('')
     setRetryMsg('')
+    setExportPayload(null)
+    setExportErrorMessage('')
+    setExportJobId(null)
 
     transition(setAppState, STATES.LOADING_TRANSCRIPT)
     let transcriptData
@@ -341,37 +367,32 @@ export default function App() {
     }
 
     transition(setAppState, STATES.PREVIEW_READY)
-    kickOffExport(concepts, transcriptData, generatedImages)
+    const nextExportPayload = buildExportPayload(concepts, transcriptData, generatedImages)
+    setExportPayload(nextExportPayload)
+    kickOffExport(nextExportPayload)
   }
 
-  async function kickOffExport(concepts, transcriptData, generatedImages) {
+  async function kickOffExport(payload = exportPayload) {
+    if (!payload) return
+
+    clearExportPoll()
+    setExportErrorMessage('')
+    setExportJobId(null)
     transition(setAppState, STATES.EXPORTING)
     try {
-      const exportImages = concepts.map((concept, index) => ({
-        timestamp_seconds: concept.timestamp_seconds,
-        image_url: generatedImages[index]?.image_url ?? '',
-        duration_seconds:
-          index < concepts.length - 1
-            ? concepts[index + 1].timestamp_seconds - concept.timestamp_seconds
-            : 30,
-        concept: concept.concept,
-      }))
       const res = await fetch(`${API_URL}/export`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          audio_path: transcriptData.audio_path,
-          images: exportImages,
-          transcript: transcriptData.transcript,
-        }),
+        body: JSON.stringify(payload),
       })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) throw new Error(await readErrorMessage(res))
       const { job_id } = await res.json()
       setExportJobId(job_id)
       pollExport(job_id)
     } catch (err) {
       console.error('[Visualang] Export start failed:', err)
-      transition(setAppState, STATES.PREVIEW_READY)
+      setExportErrorMessage('Video export could not start. Retry export from the preview.')
+      transition(setAppState, STATES.EXPORT_FAILED)
     }
   }
 
@@ -383,11 +404,15 @@ export default function App() {
         const data = await res.json()
         if (data.status === 'done') {
           clearExportPoll()
+          setExportErrorMessage('')
           transition(setAppState, STATES.DONE)
         } else if (data.status === 'error') {
           clearExportPoll()
           console.error('[Visualang] Export error:', data.error)
-          transition(setAppState, STATES.PREVIEW_READY)
+          setExportErrorMessage(
+            'Video export failed after the preview was generated. Retry export to try again.'
+          )
+          transition(setAppState, STATES.EXPORT_FAILED)
         }
       } catch (err) {
         console.error('[Visualang] Export poll failed:', err)
@@ -427,6 +452,7 @@ export default function App() {
   const isPreviewState = [
     STATES.PREVIEW_READY,
     STATES.EXPORTING,
+    STATES.EXPORT_FAILED,
     STATES.DONE,
   ].includes(appState)
   const hasDownloads = appState === STATES.DONE && exportJobId
@@ -450,6 +476,9 @@ export default function App() {
     }
     if (appState === STATES.EXPORTING) {
       return 'Rendering your video in the background.'
+    }
+    if (appState === STATES.EXPORT_FAILED) {
+      return exportErrorMessage || 'Export failed. Retry export from the preview.'
     }
     if (appState === STATES.DONE) {
       return hasDownloads
@@ -527,7 +556,7 @@ export default function App() {
               <div className="stage-view__status">
                 {appState === STATES.PREVIEW_READY && (
                   <div className="notice notice--info">
-                    Preview is ready. Export will retry if the background render was interrupted.
+                    Preview is ready while your export status updates in the background.
                   </div>
                 )}
                 {appState === STATES.EXPORTING && (
@@ -544,6 +573,18 @@ export default function App() {
                         the export finishes.
                       </span>
                     </span>
+                  </div>
+                )}
+                {appState === STATES.EXPORT_FAILED && (
+                  <div className="notice notice--warning">
+                    <span>{exportErrorMessage || 'Video export failed from the current preview.'}</span>
+                    <button
+                      type="button"
+                      className="button button--secondary"
+                      onClick={() => kickOffExport()}
+                    >
+                      Retry Export
+                    </button>
                   </div>
                 )}
                 {appState === STATES.DONE && (
