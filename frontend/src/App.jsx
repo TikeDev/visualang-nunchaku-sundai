@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { CircleNotch } from '@phosphor-icons/react'
 import { API_URL } from './config.js'
 import LoadingScreen from './components/LoadingScreen.jsx'
 import Player from './components/Player.jsx'
@@ -398,8 +399,18 @@ export default function App() {
                 )}
                 {appState === STATES.EXPORTING && (
                   <div className="notice notice--info" role="status" aria-live="polite">
-                    Rendering your video in the background. You can review the visuals while the
-                    export finishes.
+                    <span className="stage-view__status-indicator">
+                      <CircleNotch
+                        size={20}
+                        weight="bold"
+                        aria-hidden="true"
+                        className="stage-view__status-spinner"
+                      />
+                      <span>
+                        Rendering your video in the background. You can review the visuals while
+                        the export finishes.
+                      </span>
+                    </span>
                   </div>
                 )}
                 {appState === STATES.DONE && (
