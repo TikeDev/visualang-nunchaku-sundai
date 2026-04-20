@@ -527,12 +527,19 @@ a {
   bottom: 0;
   z-index: 3;
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1rem;
+  padding: 1.25rem;
+  background: linear-gradient(to top, rgba(25, 18, 12, 0.88) 0%, rgba(25, 18, 12, 0.12) 100%);
+}
+
+.player-card__controls-top {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
-  padding: 1.25rem;
-  background: linear-gradient(to top, rgba(25, 18, 12, 0.88) 0%, rgba(25, 18, 12, 0.12) 100%);
 }
 
 .player-card__controls-main {
@@ -548,6 +555,13 @@ a {
   align-items: center;
   justify-content: flex-end;
   flex: 0 1 auto;
+}
+
+.player-card__timeline {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.85rem;
 }
 
 .player-card__loading {
@@ -597,6 +611,28 @@ a {
 
 .player-card__select option {
   color: var(--color-warm-dark);
+}
+
+.player-card__time {
+  color: rgba(255, 250, 244, 0.88);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.92rem;
+  white-space: nowrap;
+}
+
+.player-card__seek {
+  width: 100%;
+  accent-color: #f3c680;
+}
+
+.player-card__seek:focus-visible {
+  outline: 2px solid rgba(243, 198, 128, 0.95);
+  outline-offset: 3px;
+}
+
+.player-card__seek:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .stage-meta {
@@ -720,13 +756,20 @@ a {
     padding: 1rem;
   }
 
+  .player-card__controls-top,
   .player-card__controls-main,
-  .player-card__controls-side {
+  .player-card__controls-side,
+  .player-card__timeline {
     width: 100%;
   }
 
   .player-card__controls-side {
     justify-content: flex-start;
+  }
+
+  .player-card__timeline {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
   }
 
   .player-card__title {
@@ -735,6 +778,10 @@ a {
 
   .player-card__select {
     width: 100%;
+  }
+
+  .player-card__time:last-child {
+    justify-self: end;
   }
 
   .notice {

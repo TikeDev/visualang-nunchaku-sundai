@@ -15,13 +15,33 @@ function getImageDuration(images, index) {
   return 30
 }
 
+function getImageIndexForTime(images, timeInSeconds) {
+  for (let index = images.length - 1; index >= 0; index -= 1) {
+    if (timeInSeconds >= images[index].timestamp_seconds) {
+      return index
+    }
+  }
+  return 0
+}
+
+function formatTime(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '0:00'
+  const totalSeconds = Math.floor(seconds)
+  const minutes = Math.floor(totalSeconds / 60)
+  const remainingSeconds = String(totalSeconds % 60).padStart(2, '0')
+  return `${minutes}:${remainingSeconds}`
+}
+
 export default function Player({ images, audioSrc, title }) {
   const [currentIndex, setCurrentIndex] = useState(0)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
   const [isReady, setIsReady] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
   const audioRef = useRef(null)
   const loadedRef = useRef(0)
+  const progressValue = duration > 0 ? Math.min(currentTime, duration) : 0
 
   useEffect(() => {
     loadedRef.current = 0
@@ -47,52 +67,52 @@ export default function Player({ images, audioSrc, title }) {
     const audio = audioRef.current
     if (!audio) return
 
-    function syncCurrentImage() {
-      const currentTime = audio.currentTime
-      let nextIndex = 0
-      for (let index = images.length - 1; index >= 0; index--) {
-        if (currentTime >= images[index].timestamp_seconds) {
-          nextIndex = index
-          break
-        }
-      }
-      setCurrentIndex(nextIndex)
+    function syncFromAudio() {
+      const nextTime = Number.isFinite(audio.currentTime) ? audio.currentTime : 0
+      const nextDuration = Number.isFinite(audio.duration) ? audio.duration : 0
+      setCurrentTime(nextTime)
+      setDuration(nextDuration)
+      setCurrentIndex(getImageIndexForTime(images, nextTime))
     }
 
     function handlePlayEvent() {
       setIsPlaying(true)
-      syncCurrentImage()
+      syncFromAudio()
     }
 
     function handlePauseEvent() {
       setIsPlaying(false)
+      syncFromAudio()
     }
 
     function handleEndedEvent() {
       setIsPlaying(false)
-      syncCurrentImage()
+      syncFromAudio()
     }
 
-    function handleLoadedData() {
-      audio.currentTime = 0
-      syncCurrentImage()
+    function handleLoadedState() {
+      syncFromAudio()
     }
 
     audio.addEventListener('play', handlePlayEvent)
     audio.addEventListener('pause', handlePauseEvent)
     audio.addEventListener('ended', handleEndedEvent)
-    audio.addEventListener('timeupdate', syncCurrentImage)
-    audio.addEventListener('seeked', syncCurrentImage)
-    audio.addEventListener('loadeddata', handleLoadedData)
+    audio.addEventListener('timeupdate', syncFromAudio)
+    audio.addEventListener('seeked', syncFromAudio)
+    audio.addEventListener('loadeddata', handleLoadedState)
+    audio.addEventListener('loadedmetadata', handleLoadedState)
+    audio.addEventListener('durationchange', handleLoadedState)
 
-    syncCurrentImage()
+    syncFromAudio()
     return () => {
       audio.removeEventListener('play', handlePlayEvent)
       audio.removeEventListener('pause', handlePauseEvent)
       audio.removeEventListener('ended', handleEndedEvent)
-      audio.removeEventListener('timeupdate', syncCurrentImage)
-      audio.removeEventListener('seeked', syncCurrentImage)
-      audio.removeEventListener('loadeddata', handleLoadedData)
+      audio.removeEventListener('timeupdate', syncFromAudio)
+      audio.removeEventListener('seeked', syncFromAudio)
+      audio.removeEventListener('loadeddata', handleLoadedState)
+      audio.removeEventListener('loadedmetadata', handleLoadedState)
+      audio.removeEventListener('durationchange', handleLoadedState)
     }
   }, [images, audioSrc])
 
@@ -103,6 +123,8 @@ export default function Player({ images, audioSrc, title }) {
     audio.currentTime = 0
     setIsPlaying(false)
     setCurrentIndex(0)
+    setCurrentTime(0)
+    setDuration(0)
   }, [audioSrc])
 
   useEffect(() => {
@@ -128,6 +150,18 @@ export default function Player({ images, audioSrc, title }) {
     if (audioRef.current) {
       audioRef.current.playbackRate = rate
     }
+  }
+
+  function handleSeekChange(event) {
+    const audio = audioRef.current
+    if (!audio) return
+
+    const nextTime = Number.parseFloat(event.target.value)
+    if (!Number.isFinite(nextTime)) return
+
+    audio.currentTime = nextTime
+    setCurrentTime(nextTime)
+    setCurrentIndex(getImageIndexForTime(images, nextTime))
   }
 
   return (
@@ -168,43 +202,69 @@ export default function Player({ images, audioSrc, title }) {
         <div className="player-card__vignette" />
 
         <div className="player-card__controls">
-          <div className="player-card__controls-main">
-            {!isReady ? (
-              <div className="player-card__loading" role="status" aria-live="polite">
-                <CircleNotch size={22} style={{ animation: 'spin 1s linear infinite' }} />
-                <span>Loading images...</span>
-              </div>
-            ) : (
-              <button
-                type="button"
-                className="player-card__play-button"
-                onClick={isPlaying ? handlePause : handlePlay}
-                disabled={!isReady}
-                aria-label={isPlaying ? 'Pause narration' : 'Play narration'}
-              >
-                {isPlaying ? <Pause size={22} weight="fill" /> : <Play size={22} weight="fill" />}
-              </button>
-            )}
+          <div className="player-card__controls-top">
+            <div className="player-card__controls-main">
+              {!isReady ? (
+                <div className="player-card__loading" role="status" aria-live="polite">
+                  <CircleNotch size={22} style={{ animation: 'spin 1s linear infinite' }} />
+                  <span>Loading images...</span>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="player-card__play-button"
+                  onClick={isPlaying ? handlePause : handlePlay}
+                  disabled={!isReady}
+                  aria-label={isPlaying ? 'Pause narration' : 'Play narration'}
+                >
+                  {isPlaying ? (
+                    <Pause size={22} weight="fill" />
+                  ) : (
+                    <Play size={22} weight="fill" />
+                  )}
+                </button>
+              )}
 
-            {title && <p className="player-card__title">{title}</p>}
+              {title && <p className="player-card__title">{title}</p>}
+            </div>
+
+            <div className="player-card__controls-side">
+              <label className="player-card__rate">
+                <span className="sr-only">Playback speed</span>
+                <select
+                  value={playbackRate}
+                  onChange={handleRateChange}
+                  className="player-card__select"
+                  aria-label="Playback speed"
+                >
+                  {[0.75, 1, 1.25, 1.5].map(rate => (
+                    <option key={rate} value={rate}>
+                      {rate}x
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
 
-          <div className="player-card__controls-side">
-            <label className="player-card__rate">
-              <span className="sr-only">Playback speed</span>
-              <select
-                value={playbackRate}
-                onChange={handleRateChange}
-                className="player-card__select"
-                aria-label="Playback speed"
-              >
-                {[0.75, 1, 1.25, 1.5].map(rate => (
-                  <option key={rate} value={rate}>
-                    {rate}x
-                  </option>
-                ))}
-              </select>
-            </label>
+          <div className="player-card__timeline">
+            <span className="player-card__time" aria-label="Elapsed time">
+              {formatTime(progressValue)}
+            </span>
+            <input
+              type="range"
+              className="player-card__seek"
+              min="0"
+              max={duration || 0}
+              step="0.1"
+              value={progressValue}
+              onChange={handleSeekChange}
+              disabled={!isReady || duration === 0}
+              aria-label="Seek preview"
+            />
+            <span className="player-card__time" aria-label="Total duration">
+              {formatTime(duration)}
+            </span>
           </div>
         </div>
       </div>
