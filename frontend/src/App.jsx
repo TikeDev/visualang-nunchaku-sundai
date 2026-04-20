@@ -4,6 +4,8 @@ import LoadingScreen from './components/LoadingScreen.jsx'
 import Player from './components/Player.jsx'
 import UrlInput from './components/UrlInput.jsx'
 
+const LOGO_SRC = new URL('../../logos/Visualang-logo.png', import.meta.url).href
+
 const STATES = {
   IDLE: 'idle',
   LOADING_TRANSCRIPT: 'loading_transcript',
@@ -39,7 +41,6 @@ const SAMPLE_IMAGES = [
 
 const DEMO_AUDIO_SRC = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3'
 
-// --- Retry helper ---
 async function fetchWithRetry(url, options, onRetry) {
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
@@ -63,11 +64,9 @@ async function fetchWithRetry(url, options, onRetry) {
       }
       return res
     } catch (err) {
-      if (attempt === 1) {
-        // silent retry
-      } else if (attempt === 2) {
-        onRetry?.(`Connection issue, retrying...`)
-      } else {
+      if (attempt === 2) {
+        onRetry?.('Connection issue, retrying...')
+      } else if (attempt === 3) {
         throw err
       }
     }
@@ -151,7 +150,6 @@ export default function App() {
     setGateWarning('')
     setRetryMsg('')
 
-    // --- Step 1: Transcript ---
     transition(setAppState, STATES.LOADING_TRANSCRIPT)
     let transcriptData
     try {
@@ -189,7 +187,6 @@ export default function App() {
       return
     }
 
-    // --- Step 2: Concepts ---
     transition(setAppState, STATES.LOADING_CONCEPTS)
     let concepts
     try {
@@ -211,7 +208,6 @@ export default function App() {
       return
     }
 
-    // --- Step 3: Image generation (SSE) ---
     transition(setAppState, STATES.GENERATING_IMAGES)
     let generatedImages = []
     try {
@@ -233,12 +229,12 @@ export default function App() {
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
         buffer = lines.pop()
+
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue
           const data = JSON.parse(line.slice(6))
-          if (data.error) {
-            throw new Error(data.error)
-          }
+          if (data.error) throw new Error(data.error)
+
           if (data.done) {
             generatedImages = normalizeImages(data.images)
             setImages(generatedImages)
@@ -258,7 +254,6 @@ export default function App() {
       return
     }
 
-    // --- Preview ready — kick off export in background ---
     transition(setAppState, STATES.PREVIEW_READY)
     kickOffExport(concepts, transcriptData, generatedImages)
   }
@@ -266,14 +261,14 @@ export default function App() {
   async function kickOffExport(concepts, transcriptData, generatedImages) {
     transition(setAppState, STATES.EXPORTING)
     try {
-      const exportImages = concepts.map((c, i) => ({
-        timestamp_seconds: c.timestamp_seconds,
-        image_url: generatedImages[i]?.image_url ?? '',
+      const exportImages = concepts.map((concept, index) => ({
+        timestamp_seconds: concept.timestamp_seconds,
+        image_url: generatedImages[index]?.image_url ?? '',
         duration_seconds:
-          i < concepts.length - 1
-            ? concepts[i + 1].timestamp_seconds - c.timestamp_seconds
+          index < concepts.length - 1
+            ? concepts[index + 1].timestamp_seconds - concept.timestamp_seconds
             : 30,
-        concept: c.concept,
+        concept: concept.concept,
       }))
       const res = await fetch(`${API_URL}/export`, {
         method: 'POST',
@@ -294,11 +289,11 @@ export default function App() {
     }
   }
 
-  async function pollExport(job_id) {
+  async function pollExport(jobId) {
     clearExportPoll()
     exportPollRef.current = setInterval(async () => {
       try {
-        const res = await fetch(`${API_URL}/export/${job_id}`)
+        const res = await fetch(`${API_URL}/export/${jobId}`)
         const data = await res.json()
         if (data.status === 'done') {
           clearExportPoll()
@@ -314,7 +309,6 @@ export default function App() {
     }, 3000)
   }
 
-  // --- Build loading steps ---
   function buildSteps() {
     const stepDefs = [
       { key: STATES.LOADING_TRANSCRIPT, label: 'Fetching transcript' },
@@ -323,195 +317,145 @@ export default function App() {
     ]
     const order = [STATES.LOADING_TRANSCRIPT, STATES.LOADING_CONCEPTS, STATES.GENERATING_IMAGES]
     const currentIdx = order.indexOf(appState)
-    return stepDefs.map((s, i) => {
+    return stepDefs.map((step, index) => {
       let state = 'pending'
-      if (i < currentIdx) state = 'complete'
-      else if (i === currentIdx) state = 'active'
+      if (index < currentIdx) state = 'complete'
+      else if (index === currentIdx) state = 'active'
+
       let detail = ''
-      if (s.key === STATES.GENERATING_IMAGES && appState === STATES.GENERATING_IMAGES) {
+      if (step.key === STATES.GENERATING_IMAGES && appState === STATES.GENERATING_IMAGES) {
         detail =
           genProgress.total > 0
             ? `${genProgress.index} of ${genProgress.total} — "${genProgress.concept}"`
             : ''
       }
-      return { label: s.label, state, detail }
+      return { label: step.label, state, detail }
     })
   }
 
-  // --- Render ---
   const isLoading = [
     STATES.LOADING_TRANSCRIPT,
     STATES.LOADING_CONCEPTS,
     STATES.GENERATING_IMAGES,
   ].includes(appState)
+  const isPreviewState = [
+    STATES.PREVIEW_READY,
+    STATES.EXPORTING,
+    STATES.DONE,
+  ].includes(appState)
+  const hasDownloads = appState === STATES.DONE && exportJobId
+  const previewTitle = title || 'Your Visualang preview'
 
-  if (appState === STATES.IDLE) {
-    return (
-      <div>
+  return (
+    <div className="app-shell">
+      <header className="app-header">
+        <div className="app-brand" aria-label="Visualang">
+          <img src={LOGO_SRC} alt="Visualang" className="app-brand__image" />
+        </div>
+        <div className="app-header__actions">
+          {isPreviewState && (
+            <button type="button" className="button button--secondary" onClick={resetToIdle}>
+              Create Another Video
+            </button>
+          )}
+        </div>
+      </header>
+
+      <main className="app-main">
         {error && (
-          <div style={styles.errorBanner}>
-            {error}{' '}
-            <button style={styles.tryAgainBtn} onClick={() => setError('')}>
+          <div className="notice notice--error" role="alert">
+            <span>{error}</span>
+            <button type="button" className="notice__dismiss" onClick={() => setError('')}>
               Dismiss
             </button>
           </div>
         )}
-        <UrlInput onSubmit={handleSubmit} />
-      </div>
-    )
-  }
 
-  if (isLoading) {
-    return <LoadingScreen steps={buildSteps()} title={title || retryMsg} warning={gateWarning} />
-  }
+        {appState === STATES.IDLE && <UrlInput onSubmit={handleSubmit} />}
 
-  if (
-    appState === STATES.PREVIEW_READY ||
-    appState === STATES.EXPORTING ||
-    appState === STATES.DONE
-  ) {
-    return (
-      <div style={{ padding: '2rem', background: 'var(--color-bg, #f5f0e8)', minHeight: '100vh' }}>
-        <div style={styles.previewShell}>
-          <div style={styles.previewActions}>
-            <button style={styles.secondaryActionBtn} onClick={resetToIdle}>
-              Create Another Video
-            </button>
-          </div>
-        </div>
-        <Player
-          images={images.length > 0 ? images : SAMPLE_IMAGES}
-          audioSrc={isDemoMode ? DEMO_AUDIO_SRC : audioSrc}
-          title={title}
-        />
-        {appState === STATES.EXPORTING && (
-          <div style={styles.exportingBadge}>Rendering video...</div>
+        {isLoading && (
+          <LoadingScreen steps={buildSteps()} title={title || retryMsg} warning={gateWarning} />
         )}
-        {gateWarning && <div style={styles.warningBadge}>{gateWarning}</div>}
-        {appState === STATES.DONE && exportJobId && (
-          <div style={styles.downloadBar}>
-            <a
-              href={`${API_URL}/export/${exportJobId}/video`}
-              download="visualang.mp4"
-              style={styles.dlBtn}
-            >
-              Download Video
-            </a>
-            <a
-              href={`${API_URL}/export/${exportJobId}/transcript`}
-              download="transcript.txt"
-              style={styles.dlBtn}
-            >
-              Transcript
-            </a>
-            <a
-              href={`${API_URL}/export/${exportJobId}/images`}
-              download="visualang_images.zip"
-              style={styles.dlBtn}
-            >
-              Images
-            </a>
-          </div>
+
+        {isPreviewState && (
+          <section className="stage-view" aria-labelledby="preview-title">
+            <div className="stage-view__intro">
+              <div className="stage-view__copy">
+                <p className="eyebrow">Story Preview</p>
+                <h1 id="preview-title" className="stage-view__title">
+                  {previewTitle}
+                </h1>
+                <p className="stage-view__summary">
+                  Review the illustrated sequence, listen through the narration, and export the
+                  packaged assets when rendering finishes.
+                </p>
+              </div>
+              <div className="stage-view__status">
+                {appState === STATES.PREVIEW_READY && (
+                  <div className="notice notice--info" role="status">
+                    Preview is ready. Export will retry if the background render was interrupted.
+                  </div>
+                )}
+                {appState === STATES.EXPORTING && (
+                  <div className="notice notice--info" role="status" aria-live="polite">
+                    Rendering your video in the background. You can review the visuals while the
+                    export finishes.
+                  </div>
+                )}
+                {appState === STATES.DONE && (
+                  <div className="notice notice--success" role="status">
+                    Export complete. Download the video, transcript, or images below.
+                  </div>
+                )}
+                {gateWarning && (
+                  <div className="notice notice--warning" role="status">
+                    {gateWarning}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <Player
+              images={images.length > 0 ? images : SAMPLE_IMAGES}
+              audioSrc={isDemoMode ? DEMO_AUDIO_SRC : audioSrc}
+              title={title}
+            />
+
+            <div className="stage-meta">
+              <p className="stage-meta__text">
+                Controls stay visible across narrow viewports, and the player scales without
+                clipping action areas.
+              </p>
+            </div>
+
+            {hasDownloads && (
+              <div className="stage-actions" aria-label="Export downloads">
+                <a
+                  href={`${API_URL}/export/${exportJobId}/video`}
+                  download="visualang.mp4"
+                  className="button button--primary"
+                >
+                  Download Video
+                </a>
+                <a
+                  href={`${API_URL}/export/${exportJobId}/transcript`}
+                  download="transcript.txt"
+                  className="button button--secondary"
+                >
+                  Transcript
+                </a>
+                <a
+                  href={`${API_URL}/export/${exportJobId}/images`}
+                  download="visualang_images.zip"
+                  className="button button--secondary"
+                >
+                  Images
+                </a>
+              </div>
+            )}
+          </section>
         )}
-      </div>
-    )
-  }
-
-  return null
-}
-
-const styles = {
-  errorBanner: {
-    position: 'fixed',
-    top: '1rem',
-    left: '50%',
-    transform: 'translateX(-50%)',
-    background: '#b94040',
-    color: 'white',
-    padding: '0.6rem 1.2rem',
-    borderRadius: '8px',
-    fontSize: '0.9rem',
-    zIndex: 100,
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.75rem',
-  },
-  tryAgainBtn: {
-    background: 'rgba(255,255,255,0.2)',
-    border: 'none',
-    color: 'white',
-    padding: '0.2rem 0.6rem',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '0.85rem',
-  },
-  previewShell: {
-    width: '100%',
-    maxWidth: '900px',
-    margin: '0 auto 1rem',
-  },
-  previewActions: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-  },
-  secondaryActionBtn: {
-    background: 'rgba(255,255,255,0.7)',
-    border: '1px solid rgba(44,36,22,0.18)',
-    color: 'var(--color-warm-dark)',
-    padding: '0.65rem 1rem',
-    borderRadius: '999px',
-    fontSize: '0.9rem',
-    lineHeight: 1,
-    boxShadow: '0 10px 24px rgba(44,36,22,0.08)',
-    backdropFilter: 'blur(8px)',
-    transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-  },
-  exportingBadge: {
-    position: 'fixed',
-    bottom: '5rem',
-    right: '1.5rem',
-    background: 'rgba(28,20,10,0.75)',
-    color: 'rgba(255,255,255,0.75)',
-    padding: '0.4rem 0.8rem',
-    borderRadius: '6px',
-    fontSize: '0.8rem',
-    backdropFilter: 'blur(4px)',
-    zIndex: 10,
-  },
-  warningBadge: {
-    position: 'fixed',
-    top: '1.5rem',
-    left: '1.5rem',
-    maxWidth: '420px',
-    background: 'rgba(255, 243, 224, 0.92)',
-    color: '#5b3916',
-    padding: '0.75rem 0.95rem',
-    borderRadius: '10px',
-    border: '1px solid rgba(207, 141, 74, 0.35)',
-    boxShadow: '0 10px 30px rgba(44,36,22,0.08)',
-    fontSize: '0.85rem',
-    lineHeight: 1.5,
-    zIndex: 11,
-  },
-  downloadBar: {
-    position: 'fixed',
-    bottom: '5rem',
-    right: '1.5rem',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '0.5rem',
-    zIndex: 10,
-  },
-  dlBtn: {
-    display: 'block',
-    background: 'var(--color-terracotta)',
-    color: 'white',
-    padding: '0.5rem 1rem',
-    borderRadius: '6px',
-    textDecoration: 'none',
-    fontSize: '0.85rem',
-    fontFamily: 'var(--font-body)',
-    textAlign: 'center',
-  },
+      </main>
+    </div>
+  )
 }

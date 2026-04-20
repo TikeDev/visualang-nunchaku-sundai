@@ -1,112 +1,63 @@
 import { CheckCircle, CircleNotch, Clock } from '@phosphor-icons/react'
 
 function StepIcon({ state }) {
-  if (state === 'complete') return <CheckCircle size={22} color="var(--color-sage)" weight="fill" />
-  if (state === 'active')
+  if (state === 'complete') {
+    return <CheckCircle size={24} color="var(--color-sage-strong)" weight="fill" />
+  }
+  if (state === 'active') {
     return (
       <CircleNotch
-        size={22}
-        color="var(--color-terracotta)"
+        size={24}
+        color="var(--color-terracotta-strong)"
         style={{ animation: 'spin 1s linear infinite' }}
       />
     )
-  return <Clock size={22} color="var(--color-warm-light)" />
+  }
+  return <Clock size={24} color="var(--color-warm-muted)" />
 }
 
 export default function LoadingScreen({ steps, title, warning }) {
   return (
-    <div style={styles.container}>
-      {title && <p style={styles.title}>{title}</p>}
-      <div style={styles.card}>
-        <h2 style={styles.heading}>Processing</h2>
-        <ul style={styles.list}>
-          {steps.map((step, i) => (
-            <li key={i} style={styles.step}>
-              <span style={styles.icon}>
+    <section className="panel panel--loading" aria-labelledby="loading-title">
+      <div className="panel__copy">
+        <p className="eyebrow">Processing Workflow</p>
+        <h1 id="loading-title" className="panel__title">
+          Building your illustrated sequence.
+        </h1>
+        <p className="panel__description">
+          Visualang is fetching the transcript, extracting concepts, and preparing the generated
+          frames. Progress updates remain readable across narrow viewports.
+        </p>
+      </div>
+
+      {title && (
+        <div className="loading-screen__context" aria-label="Current source title">
+          <p className="loading-screen__context-label">Current source</p>
+          <p className="loading-screen__context-title">{title}</p>
+        </div>
+      )}
+
+      <div className="loading-screen__card" role="status" aria-live="polite">
+        <ol className="loading-screen__list">
+          {steps.map(step => (
+            <li key={step.label} className={`loading-screen__step is-${step.state}`}>
+              <span className="loading-screen__icon" aria-hidden="true">
                 <StepIcon state={step.state} />
               </span>
-              <span style={{ ...styles.label, opacity: step.state === 'pending' ? 0.45 : 1 }}>
-                {step.label}
-                {step.detail && <span style={styles.detail}>{step.detail}</span>}
+              <span className="loading-screen__body">
+                <span className="loading-screen__label">{step.label}</span>
+                {step.detail && <span className="loading-screen__detail">{step.detail}</span>}
               </span>
             </li>
           ))}
-        </ul>
-        {warning && <div style={styles.warning}>{warning}</div>}
-      </div>
-    </div>
-  )
-}
+        </ol>
 
-const styles = {
-  container: {
-    minHeight: '100vh',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '2rem',
-    gap: '1.5rem',
-  },
-  title: {
-    fontFamily: 'var(--font-heading)',
-    fontSize: '1.1rem',
-    color: 'var(--color-warm-mid)',
-    fontStyle: 'italic',
-    maxWidth: '480px',
-    textAlign: 'center',
-  },
-  card: {
-    background: 'white',
-    borderRadius: '12px',
-    padding: '2rem 2.5rem',
-    width: '100%',
-    maxWidth: '420px',
-    boxShadow: '0 2px 16px rgba(44,36,22,0.08)',
-  },
-  heading: {
-    fontFamily: 'var(--font-heading)',
-    fontSize: '1.4rem',
-    color: 'var(--color-warm-dark)',
-    marginBottom: '1.5rem',
-  },
-  list: {
-    listStyle: 'none',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '1rem',
-  },
-  step: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.75rem',
-  },
-  icon: {
-    flexShrink: 0,
-    display: 'flex',
-    alignItems: 'center',
-  },
-  label: {
-    fontFamily: 'var(--font-body)',
-    fontSize: '0.95rem',
-    color: 'var(--color-warm-dark)',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '0.1rem',
-    transition: 'opacity 0.3s',
-  },
-  detail: {
-    fontSize: '0.8rem',
-    color: 'var(--color-warm-mid)',
-  },
-  warning: {
-    marginTop: '1.5rem',
-    padding: '0.8rem 0.9rem',
-    borderRadius: '10px',
-    background: 'rgba(207, 141, 74, 0.12)',
-    border: '1px solid rgba(207, 141, 74, 0.26)',
-    color: 'var(--color-warm-dark)',
-    fontSize: '0.85rem',
-    lineHeight: 1.5,
-  },
+        {warning && (
+          <div className="notice notice--warning loading-screen__warning" role="status">
+            {warning}
+          </div>
+        )}
+      </div>
+    </section>
+  )
 }

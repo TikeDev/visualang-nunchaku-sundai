@@ -11,210 +11,152 @@ export default function UrlInput({ onSubmit }) {
   const [file, setFile] = useState(null)
   const [error, setError] = useState('')
 
-  function handleUrlChange(e) {
-    setUrl(e.target.value)
+  function handleUrlChange(event) {
+    setUrl(event.target.value)
     setError('')
   }
 
-  function handleFileChange(e) {
-    const f = e.target.files[0]
-    if (!f) return
-    const ext = '.' + f.name.split('.').pop().toLowerCase()
+  function handleFileChange(event) {
+    const selectedFile = event.target.files[0]
+    if (!selectedFile) return
+
+    const ext = `.${selectedFile.name.split('.').pop().toLowerCase()}`
     if (!ALLOWED_EXT.includes(ext)) {
       setError(`Unsupported file type. Allowed: ${ALLOWED_EXT.join(', ')}`)
       setFile(null)
       return
     }
-    if (f.size > MAX_FILE_BYTES) {
+    if (selectedFile.size > MAX_FILE_BYTES) {
       setError('File exceeds 25 MB limit.')
       setFile(null)
       return
     }
+
     setError('')
-    setFile(f)
+    setFile(selectedFile)
   }
 
-  function handleSubmit() {
+  function handleSubmit(event) {
+    event.preventDefault()
     if (mode === 'youtube') {
       if (!YT_REGEX.test(url)) {
         setError('Please enter a valid YouTube URL.')
         return
       }
       onSubmit({ type: 'youtube', url })
-    } else {
-      if (!file) {
-        setError('Please select an audio file.')
-        return
-      }
-      onSubmit({ type: 'file', file })
+      return
     }
+
+    if (!file) {
+      setError('Please select an audio file.')
+      return
+    }
+
+    onSubmit({ type: 'file', file })
   }
 
-  const isValid =
-    mode === 'youtube' ? YT_REGEX.test(url) : file !== null
+  const isValid = mode === 'youtube' ? YT_REGEX.test(url) : file !== null
+  const helpId = 'source-help'
+  const errorId = error ? 'source-error' : undefined
+  const describedBy = [helpId, errorId].filter(Boolean).join(' ')
 
   return (
-    <div style={styles.container}>
-      <div style={styles.inner}>
-        <h1 style={styles.logo}>Visualang</h1>
-        <p style={styles.tagline}>
-          Paste a YouTube video or Shorts URL, or upload audio to generate an illustrated language learning video.
+    <section className="panel panel--input" aria-labelledby="input-title">
+      <div className="panel__copy">
+        <p className="eyebrow">Language Learning Visual Companion</p>
+        <h1 id="input-title" className="panel__title">
+          Turn a spoken lesson into an illustrated study video.
+        </h1>
+        <p className="panel__description">
+          Paste a YouTube link or upload audio to generate a transcript-driven visual sequence that
+          stays readable and usable across desktop, tablet, and phone layouts.
         </p>
+      </div>
 
-        <div style={styles.modeToggle}>
-          <button
-            style={{ ...styles.modeBtn, ...(mode === 'youtube' ? styles.modeBtnActive : {}) }}
-            onClick={() => { setMode('youtube'); setError('') }}
-          >
-            <YoutubeLogo size={18} weight={mode === 'youtube' ? 'fill' : 'regular'} />
-            YouTube URL
-          </button>
-          <button
-            style={{ ...styles.modeBtn, ...(mode === 'file' ? styles.modeBtnActive : {}) }}
-            onClick={() => { setMode('file'); setError('') }}
-          >
-            <UploadSimple size={18} weight={mode === 'file' ? 'fill' : 'regular'} />
-            Upload Audio
-          </button>
-        </div>
+      <form className="panel__form" onSubmit={handleSubmit}>
+        <fieldset className="mode-switcher">
+          <legend className="field-label">Choose your source</legend>
+          <div className="mode-switcher__options">
+            <button
+              type="button"
+              className={`mode-switcher__button ${mode === 'youtube' ? 'is-active' : ''}`}
+              onClick={() => {
+                setMode('youtube')
+                setError('')
+              }}
+              aria-pressed={mode === 'youtube'}
+            >
+              <YoutubeLogo size={20} weight={mode === 'youtube' ? 'fill' : 'regular'} />
+              <span>YouTube URL</span>
+            </button>
+            <button
+              type="button"
+              className={`mode-switcher__button ${mode === 'file' ? 'is-active' : ''}`}
+              onClick={() => {
+                setMode('file')
+                setError('')
+              }}
+              aria-pressed={mode === 'file'}
+            >
+              <UploadSimple size={20} weight={mode === 'file' ? 'fill' : 'regular'} />
+              <span>Upload Audio</span>
+            </button>
+          </div>
+        </fieldset>
 
         {mode === 'youtube' ? (
-          <input
-            style={styles.input}
-            type="text"
-            placeholder="https://www.youtube.com/watch?v=... or /shorts/..."
-            value={url}
-            onChange={handleUrlChange}
-            onKeyDown={e => e.key === 'Enter' && isValid && handleSubmit()}
-          />
-        ) : (
-          <label style={styles.fileLabel}>
+          <div className="field-group">
+            <label className="field-label" htmlFor="youtube-url">
+              YouTube video or Shorts URL
+            </label>
             <input
+              id="youtube-url"
+              className="text-input"
+              type="url"
+              inputMode="url"
+              placeholder="https://www.youtube.com/watch?v=... or /shorts/..."
+              value={url}
+              onChange={handleUrlChange}
+              aria-describedby={describedBy}
+            />
+            <p id={helpId} className="field-help">
+              Paste the full link to a YouTube video or Shorts clip.
+            </p>
+          </div>
+        ) : (
+          <div className="field-group">
+            <span className="field-label" id="audio-upload-label">
+              Audio upload
+            </span>
+            <label className="file-picker" htmlFor="audio-file" aria-describedby={describedBy}>
+              <UploadSimple size={22} />
+              <span>{file ? file.name : 'Choose an audio file to upload'}</span>
+            </label>
+            <input
+              id="audio-file"
+              className="sr-only"
               type="file"
               accept={ALLOWED_EXT.join(',')}
               onChange={handleFileChange}
-              style={{ display: 'none' }}
+              aria-labelledby="audio-upload-label"
             />
-            <UploadSimple size={20} />
-            {file ? file.name : `Choose file — ${ALLOWED_EXT.join(', ')} · max 25 MB`}
-          </label>
+            <p id={helpId} className="field-help">
+              Accepted formats: {ALLOWED_EXT.join(', ')}. Maximum file size: 25 MB.
+            </p>
+          </div>
         )}
 
         {error && (
-          <p style={styles.error}>
-            <Warning size={16} weight="fill" />
-            {error}
+          <p id="source-error" className="field-error" role="alert">
+            <Warning size={18} weight="fill" />
+            <span>{error}</span>
           </p>
         )}
 
-        <button
-          style={{ ...styles.submit, ...(!isValid ? styles.submitDisabled : {}) }}
-          onClick={handleSubmit}
-          disabled={!isValid}
-        >
-          Generate
+        <button type="submit" className="button button--primary panel__submit" disabled={!isValid}>
+          Generate Illustrated Preview
         </button>
-      </div>
-    </div>
+      </form>
+    </section>
   )
-}
-
-const styles = {
-  container: {
-    minHeight: '100vh',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '2rem',
-  },
-  inner: {
-    width: '100%',
-    maxWidth: '520px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '1.25rem',
-  },
-  logo: {
-    fontFamily: 'var(--font-heading)',
-    fontSize: '2.8rem',
-    color: 'var(--color-warm-dark)',
-    letterSpacing: '-0.02em',
-  },
-  tagline: {
-    fontSize: '1rem',
-    color: 'var(--color-warm-mid)',
-    lineHeight: 1.6,
-  },
-  modeToggle: {
-    display: 'flex',
-    gap: '0.5rem',
-    marginTop: '0.5rem',
-  },
-  modeBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.4rem',
-    padding: '0.5rem 1rem',
-    border: '1.5px solid var(--color-warm-light)',
-    borderRadius: '8px',
-    background: 'transparent',
-    color: 'var(--color-warm-mid)',
-    fontSize: '0.9rem',
-    cursor: 'pointer',
-    transition: 'all 0.15s',
-  },
-  modeBtnActive: {
-    background: 'var(--color-warm-dark)',
-    color: 'var(--color-cream)',
-    borderColor: 'var(--color-warm-dark)',
-  },
-  input: {
-    width: '100%',
-    padding: '0.75rem 1rem',
-    border: '1.5px solid var(--color-warm-light)',
-    borderRadius: '8px',
-    fontSize: '0.95rem',
-    color: 'var(--color-warm-dark)',
-    background: 'white',
-    outline: 'none',
-    transition: 'border-color 0.15s',
-  },
-  fileLabel: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.6rem',
-    padding: '0.75rem 1rem',
-    border: '1.5px dashed var(--color-warm-light)',
-    borderRadius: '8px',
-    fontSize: '0.9rem',
-    color: 'var(--color-warm-mid)',
-    cursor: 'pointer',
-    background: 'white',
-    transition: 'border-color 0.15s',
-  },
-  error: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.4rem',
-    color: '#b94040',
-    fontSize: '0.875rem',
-  },
-  submit: {
-    padding: '0.75rem 1.5rem',
-    background: 'var(--color-terracotta)',
-    color: 'white',
-    border: 'none',
-    borderRadius: '8px',
-    fontSize: '1rem',
-    fontFamily: 'var(--font-heading)',
-    letterSpacing: '0.02em',
-    cursor: 'pointer',
-    transition: 'background 0.15s',
-    alignSelf: 'flex-start',
-  },
-  submitDisabled: {
-    background: 'var(--color-warm-light)',
-    cursor: 'not-allowed',
-    color: 'var(--color-warm-mid)',
-  },
 }
