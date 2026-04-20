@@ -18,25 +18,13 @@ On the deployed app, YouTube ingestion may fail because hosted environments like
 
 ## Visitor Flow
 
-```mermaid
-flowchart LR
-A["`YouTube URL or
-Audio Upload`"] --> B["`Transcript + Audio
-Extraction
-No captions? ->
-transcribe audio`"] --> C["`Quality Gate`"] --> D["`Concept Selection`"]
-```
-
-Approved concepts then move into generation, preview, and export:
-
-```mermaid
-flowchart LR
-E["`Generate Illustrations
-Text detected ->
-retry once`"] --> F["`Preview +
-Background Export`"] --> G["`Download MP4 /
-Transcript / Images`"]
-```
+<p align="center">
+  <img
+    src="frontend/public/visitor-flow.png"
+    alt="Visitor flow showing YouTube URL or Audio Upload to Transcript and Audio Extraction to Quality Gate to Concept Selection, followed by generation, preview, export, and downloads."
+    width="1000"
+  />
+</p>
 
 
 ## Repo Structure
